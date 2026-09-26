@@ -1,7 +1,11 @@
-# Arctian OS
+# Arctian OS(v0.2)
 
 64-bit, modüler bir işletim sistemi. Önyükleyici, çekirdek, sürücü/ağ katmanı ve
 LVGL tabanlı masaüstünden oluşur. Uygulamalar C, Zig veya Rust ile yazılabilir.
+
+# Geliştirici Notu
+
+Arctian şuanda 0.2 sürümünde olup daha henüz son kullanıcı için hazır değildir. 1.0 sürümü için tahmini tarih 1 Ocak 2027 dir.
 
 ## Gereksinimler
 
