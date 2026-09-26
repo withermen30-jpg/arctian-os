@@ -6,6 +6,7 @@ LVGL tabanlı masaüstünden oluşur. Uygulamalar C, Zig veya Rust ile yazılabi
 # Geliştirici Notu
 
 Arctian şuanda 0.2 sürümünde olup daha henüz son kullanıcı için hazır değildir. 1.0 sürümü için tahmini tarih 1 Ocak 2027 dir.
+Bu kaynak koddur, eğer derlenmiş ve kullanıma hazır versiyonunu istiyorusanız lütfen şuradan indirin: https://witherstudio.com.tr
 
 ## Gereksinimler
 
