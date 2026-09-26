@@ -1,0 +1,23 @@
+{
+  "name": "Arctian",
+  "superblock_lba": 2048,
+  "module_table_lba": 2049,
+  "state_lba": 2050,
+  "module_data_start_lba": 4096,
+  "min_sectors": 8192,
+  "boot": {
+    "stage1": "build/obj/boot/stage1.bin",
+    "stage1_iso": "build/obj/boot/stage1_iso.bin",
+    "stage2": "build/obj/boot/stage2.bin",
+    "main_kernel": "build/obj/main_kernel/main_kernel.bin"
+  },
+  "modules": [
+    { "name": "install",     "iso_name": "install.bin", "type": 2, "bin": "build/obj/install/install.bin",         "elf": "build/obj/install/install.elf",             "load_addr": "0x00200000", "flags": 0 },
+    { "name": "kernel_plus", "iso_name": "kplus.bin",   "type": 3, "bin": "build/obj/kernel_plus/kernel_plus.bin", "elf": "build/obj/kernel_plus/kernel_plus.elf",     "load_addr": "0x00300000", "flags": 1 },
+    { "name": "desktop",     "iso_name": "desktop.bin", "type": 4, "bin": "build/obj/desktop/desktop.bin",         "elf": "build/obj/desktop/desktop.elf",             "load_addr": "0x00800000", "flags": 1 }
+  ],
+  "output": {
+    "img": "build/arctian.img",
+    "iso": "build/arctian.iso"
+  }
+}
