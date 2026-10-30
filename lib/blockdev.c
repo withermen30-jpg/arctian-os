@@ -171,8 +171,20 @@ int blockdev_read(int idx, uint64_t lba, uint32_t count, void *buf) {
 
 int blockdev_write(int idx, uint64_t lba, uint32_t count, const void *buf) {
     if (idx < 0 || idx >= s_count || !s_ops[idx].write) return -1;
-    if (!s_bc_on || count == 0 || count > BC_BYPASS)
-        return bd_raw_write(idx, lba, count, buf);
+    if (!s_bc_on || count == 0 || count > BC_BYPASS) {
+        int r = bd_raw_write(idx, lba, count, buf);
+        /* Bypass yazimi diska dogrudan gider. Onbellekte bu araliga ait
+         * satir kalirsa (temiz ya da kirli) eski icerik ya sonraki flush'ta
+         * yeni verinin uzerine yazar ya da sonraki okumaya eski veri doner:
+         * sessiz veri bozulmasi. Etkilenen satirlari dusuruyoruz; kirli
+         * satirlar yazilmadan atilir cunku zaten yeni veriyle ezildiler. */
+        if (r == 0 && s_bc_on)
+            for (uint32_t i = 0; i < count; i++) {
+                bc_line_t *l = bc_find(idx, lba + i);
+                if (l) { l->valid = 0; l->dirty = 0; }
+            }
+        return r;
+    }
     return bc_write(idx, lba, count, buf);
 }
 
