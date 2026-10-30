@@ -1,0 +1,11 @@
+{
+  "name": "axiom",
+  "title": "Axiom UI",
+  "version": "1.0",
+  "category": "Ornek",
+  "publisher": "Arctian SDK",
+  "role": "ui",
+  "w": 680,
+  "h": 480,
+  "permissions": []
+}

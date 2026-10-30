@@ -1,0 +1,12 @@
+{
+  "name": "sayac",
+  "title": "Sayac (CLI)",
+  "version": "1.0",
+  "category": "Ornek",
+  "publisher": "Arctian SDK",
+  "role": "cli",
+  "entry": "sayac",
+  "w": 0,
+  "h": 0,
+  "permissions": ["fs"]
+}

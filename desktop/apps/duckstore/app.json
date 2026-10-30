@@ -1,0 +1,8 @@
+{
+  "name": "duckstore",
+  "title": "DuckStore",
+  "category": "Mağaza",
+  "icon": "icon.svg",
+  "w": 940,
+  "h": 600
+}

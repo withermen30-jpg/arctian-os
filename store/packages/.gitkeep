@@ -1,0 +1,5 @@
+# DuckStore feed sunucusu bu klasordeki *.wlf dosyalarini tarar.
+# Buraya ancak imzali .wlf paketleri koy; SDK ile uretilir:
+#   cd sdk/examples/uidemo && sh ../../build.sh      -> uidemo.wlf
+#   python3 tools/pkg_sign.py uidemo.wlf             -> imzala
+# Sunucuyu calistir:  python3 store/server/duckstore_server.py --port 8090

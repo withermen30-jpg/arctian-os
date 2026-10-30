@@ -1,0 +1,11 @@
+{
+  "name": "player",
+  "title": "Medya Oynatici",
+  "version": "1.0",
+  "category": "Ornek",
+  "publisher": "Arctian SDK",
+  "role": "ui",
+  "w": 480,
+  "h": 300,
+  "permissions": ["fs"]
+}

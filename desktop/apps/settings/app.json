@@ -1,0 +1,8 @@
+{
+  "name": "settings",
+  "title": "Ayarlar",
+  "category": "Sistem",
+  "icon": "icon.svg",
+  "w": 900,
+  "h": 600
+}

@@ -1,0 +1,14 @@
+{
+  "name": "pyrt",
+  "title": "pyrt (calisma zamani)",
+  "version": "0.1",
+  "category": "Gelistirme",
+  "publisher": "Arctian SDK",
+  "role": "runtime",
+  "entry": "pyrt",
+  "handles": ["py", "pyw"],
+  "terminal": true,
+  "w": 0,
+  "h": 0,
+  "permissions": ["fs"]
+}

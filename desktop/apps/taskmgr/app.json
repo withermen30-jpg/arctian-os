@@ -1,0 +1,8 @@
+{
+  "name": "taskmgr",
+  "title": "Görev Yöneticisi",
+  "category": "Sistem",
+  "icon": "icon.png",
+  "w": 820,
+  "h": 540
+}

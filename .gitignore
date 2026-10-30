@@ -1,0 +1,37 @@
+# Arctian kaynak deposu — derleme ve araclik ciktilari izlenmez
+
+# Derleme
+build/
+*.o
+*.elf
+*.bin
+*.img
+*.iso
+*.part
+.zig-cache/
+
+# Arac onbellegi
+__pycache__/
+*.pyc
+
+# Uretilen dagitim/magaza dosyalari (tools/sdk_dist.py ile uretilir)
+store/public/
+
+# Gecici, yedek ve gunluk dosyalari
+*.log
+*.bak
+*.orig
+*.rej
+*.tmp
+*~
+
+# Ekran goruntusu ve test ciktilari
+*.ppm
+shots/
+
+# Duzenleyici / isletim sistemi
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

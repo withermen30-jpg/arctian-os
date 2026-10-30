@@ -1,0 +1,35 @@
+# Satir sonu politikasi: kaynaklar LF, Windows toplu komutlari CRLF
+* text=auto
+
+*.c      text eol=lf
+*.h      text eol=lf
+*.S      text eol=lf
+*.asm    text eol=lf
+*.py     text eol=lf
+*.sh     text eol=lf
+*.mk     text eol=lf
+Makefile text eol=lf
+*.json   text
+*.md     text
+*.svg    text
+
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Ikili dosyalar — satir sonu/normallestirme uygulanmaz
+*.ttf    binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.wlf    binary
+*.dpk    binary
+*.img    binary
+*.iso    binary
+*.ppm    binary
+*.exe    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary

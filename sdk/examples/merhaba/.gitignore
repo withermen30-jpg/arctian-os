@@ -1,0 +1,6 @@
+# .wlf ciktilarini depoya koymayalim (build artefaktlari)
+app.o
+app.elf
+app.bin
+libwolf.o
+*.wlf

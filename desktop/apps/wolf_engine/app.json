@@ -1,0 +1,9 @@
+{
+  "name": "wolf_engine",
+  "title": "Wolf Engine",
+  "category": "Sistem",
+  "icon": "icon.svg",
+  "w": 0,
+  "h": 0,
+  "flags": ["no_desktop", "engine"]
+}

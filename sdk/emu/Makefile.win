@@ -1,0 +1,61 @@
+# Arctian Emulator — Windows derlemesi (w64devkit: gcc + mingw32-make)
+#
+# sdk/emu/build-win.bat uzerinden calistir (PATH'i ve envanteri o hazirlar).
+# LVGL listesi ve gomulu font, tools/emu_srcs.py ile uretilmis anlik
+# goruntuden (sdk/emu/gen/) alinir; boylece Windows'ta find/python sart degil.
+
+ROOT     := ../..
+BUILD    := $(ROOT)/build/emu-win
+GEN      := $(ROOT)/sdk/emu/gen
+BIN      := $(BUILD)/arctian-emu.exe
+BIN_HEAD := $(BUILD)/arctian-emu-headless.exe
+
+CC       := gcc
+CFLAGS   := -O2 -std=gnu11 -DNDEBUG -w -fno-strict-aliasing -static
+# emu_bridge.c: SysV nitelikli isaretelerin MS yapisina atami bilincli
+CFLAGS   += -Wno-error=incompatible-pointer-types
+INCLUDES := -I$(ROOT)/sdk/emu/shim -I$(ROOT)/sdk/emu \
+            -I$(ROOT)/include/arctian -I$(ROOT)/desktop -I$(ROOT)/desktop/shell \
+            -I$(ROOT)/desktop/ui-kit -I$(ROOT)/desktop/port -I$(ROOT)/desktop/theme \
+            -I$(ROOT)/install -I$(ROOT)/lib \
+            -I$(ROOT)/third_party -I$(ROOT)/third_party/lvgl \
+            -DLV_CONF_INCLUDE_SIMPLE
+LDLIBS   :=
+
+LVGL_C   := $(file < $(GEN)/lvgl_sources.txt)
+OS_C     := desktop/wlf_host.c desktop/wlf_vm.c desktop/port/lv_port.c \
+            desktop/theme/adl_wolf.c desktop/sig.c lib/png.c
+EMU_C    := sdk/emu/emu_main.c sdk/emu/emu_shim.c sdk/emu/emu_pkg.c \
+            sdk/emu/emu_native.c sdk/emu/emu_png.c sdk/emu/emu_bridge.c \
+            sdk/emu/emu_time.c
+
+LVGL_OBJS := $(addprefix $(BUILD)/,$(LVGL_C:.c=.o))
+OS_OBJS   := $(addprefix $(BUILD)/,$(OS_C:.c=.o))
+EMU_OBJS  := $(addprefix $(BUILD)/,$(EMU_C:.c=.o))
+FONT_OBJ  := $(BUILD)/sdk/emu/gen/font_data.o
+PLAT_WIN  := $(BUILD)/sdk/emu/plat_win32.o
+PLAT_HEAD := $(BUILD)/sdk/emu/plat_headless.o
+
+.PHONY: all clean
+all: $(BIN) $(BIN_HEAD)
+
+$(BIN): $(LVGL_OBJS) $(OS_OBJS) $(EMU_OBJS) $(FONT_OBJ) $(PLAT_WIN)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) -lgdi32 -luser32
+
+$(BIN_HEAD): $(LVGL_OBJS) $(OS_OBJS) $(EMU_OBJS) $(FONT_OBJ) $(PLAT_HEAD)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+$(BUILD)/sdk/emu/plat_win32.o: $(ROOT)/sdk/emu/plat_win32.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) -DEMU_PLAT_WIN32 -c -o $@ $<
+
+$(BUILD)/sdk/emu/plat_headless.o: $(ROOT)/sdk/emu/plat_headless.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) -DEMU_PLAT_HEADLESS -c -o $@ $<
+
+$(BUILD)/%.o: $(ROOT)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
+
+clean:
+	rm -rf $(BUILD)

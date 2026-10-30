@@ -1,0 +1,11 @@
+{
+  "name": "uidemo",
+  "title": "UI Deneme",
+  "version": "1.0",
+  "category": "Ornek",
+  "publisher": "Arctian SDK",
+  "role": "ui",
+  "w": 360,
+  "h": 220,
+  "permissions": ["fs"]
+}

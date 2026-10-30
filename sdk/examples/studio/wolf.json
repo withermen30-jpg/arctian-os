@@ -1,0 +1,11 @@
+{
+  "name": "studio",
+  "title": "Cizim Studysu",
+  "version": "1.0",
+  "category": "Ornek",
+  "publisher": "Arctian SDK",
+  "role": "ui",
+  "w": 620,
+  "h": 380,
+  "permissions": []
+}

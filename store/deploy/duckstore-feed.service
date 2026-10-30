@@ -1,0 +1,17 @@
+[Unit]
+Description=DuckStore Feed Server (port 8090)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duckstore
+Group=duckstore
+WorkingDirectory=/opt/duckstore/server
+Environment=DUCKSTORE_SIGN_KEY=/opt/duckstore/keys/dev_rsa2048.txt
+ExecStart=/usr/bin/python3 /opt/duckstore/server/duckstore_server.py --host 0.0.0.0 --port 8090 --packages /opt/duckstore/packages --wallpapers /opt/duckstore/server/wallpapers
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,84 @@
+#!/bin/sh
+# wf — Arctian uygulama is akisinin tek kumandası (Linux / macOS / WSL)
+#
+#   wf new <ad> [baslik]      proje sablonu olustur (main.c + wolf.json)
+#   wf build [proje]        main.c + wolf.json -> proje.wlf (imzasiz, yerel)
+#   wf run <ad>.wlf         emulatorde calistir (pencereli; yoksa headless)
+#   wf shot <ad>.wlf [out]  headless PNG ekran goruntusu (varsayilan out.png)
+#   wf info <ad>.wlf        paket basligini yazdirir
+#   wf check                derleme araclariyla emulatoru denetler
+#   wf help                 bu ekran
+#
+# Emulator yolu: $LIBWOLF_EMU, ~/.local/bin, /usr/local/bin, SDK-yanı, PATH.
+set -e
+
+SDK=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PY=${PYTHON:-python3}
+
+find_emu() {
+    # $1: "gui" veya "headless"
+    _n=$1
+    [ -n "$LIBWOLF_EMU" ] && [ -x "$LIBWOLF_EMU" ] && { echo "$LIBWOLF_EMU"; return 0; }
+    for c in \
+        "$HOME/.local/bin/arctian-emu" \
+        "$SDK/bin/arctian-emu" \
+        "$SDK/../build/emu/arctian-emu" \
+        "/usr/local/bin/arctian-emu"; do
+        [ -x "$c" ] && { echo "$c"; return 0; }
+    done
+    for c in \
+        "$HOME/.local/bin/arctian-emu-headless" \
+        "$SDK/bin/arctian-emu-headless" \
+        "$SDK/../build/emu/arctian-emu-headless" \
+        "/usr/local/bin/arctian-emu-headless"; do
+        [ -x "$c" ] && { echo "$c"; return 0; }
+    done
+    if [ "$_n" = headless ] && command -v arctian-emu-headless >/dev/null 2>&1; then
+        echo arctian-emu-headless; return 0
+    fi
+    command -v arctian-emu >/dev/null 2>&1 && { echo arctian-emu; return 0; }
+    return 1
+}
+
+die() { echo "[wf] $*" >&2; exit 1; }
+
+cmd=${1:-help}
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+  new)
+    [ $# -ge 1 ] || die "kullanim: wf new <ad> [baslik]"
+    "$PY" "$SDK/wlfpack.py" --new "$1" ${2:+--title "$2"}
+    ;;
+  build)
+    sh "$SDK/build.sh" "$@"
+    ;;
+  run)
+    [ $# -ge 1 ] || die "kullanim: wf run uygulama.wlf [-- arg]"
+    emu=$(find_emu gui) || die "emulator bulunamadi (arctian-emu kurulu degil)"
+    exec "$emu" "$@"
+    ;;
+  shot)
+    [ $# -ge 1 ] || die "kullanim: wf shot uygulama.wlf [cikti.png]"
+    out=${2:-shot.png}
+    emu=$(find_emu headless) || die "emulator bulunamadi (arctian-emu kurulu degil)"
+    "$emu" "$1" --headless --shot "$out" --frames 60
+    ;;
+  info)
+    [ $# -ge 1 ] || die "kullanim: wf info uygulama.wlf"
+    "$PY" "$SDK/wlfpack.py" --inspect "$1"
+    ;;
+  check)
+    sh "$SDK/build.sh" --check
+    emu=$(find_emu headless) || true
+    if [ -n "${emu:-}" ]; then echo "[ok] emulator: $emu"; else
+        echo "[uyari] emulator bulunamadi (yalmizca derleme calisir)"
+    fi
+    ;;
+  help|-h|--help)
+    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    die "bilinmeyen komut: $cmd (wf help)"
+    ;;
+esac

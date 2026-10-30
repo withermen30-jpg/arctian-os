@@ -1,0 +1,23 @@
+[Unit]
+Description=DuckStore Public Market (market.kerem.site, port 47584)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duckstore
+Group=duckstore
+WorkingDirectory=/opt/duckstore/web
+Environment=DUCKSTORE_BASE=/opt/duckstore
+Environment=DUCKSTORE_MARKET_PORT=47584
+Environment=DUCKSTORE_MARKET_BIND=0.0.0.0
+Environment=DUCKSTORE_SIGN_KEY=/opt/duckstore/keys/dev_rsa2048.txt
+EnvironmentFile=-/opt/duckstore/data/market.env
+ExecStart=/usr/bin/python3 /opt/duckstore/web/market.py
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
