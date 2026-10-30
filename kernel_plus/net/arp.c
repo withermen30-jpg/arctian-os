@@ -3,6 +3,7 @@
 #include "net.h"
 #include "kernel.h"
 #include "serial.h"
+#include "clock.h"
 
 static arp_entry_t arp_cache[ARP_CACHE_SIZE];
 static uint32_t arp_ticks = 0;
@@ -75,9 +76,11 @@ bool arp_resolve(const uint8_t ip[4], uint8_t mac_out[6]) {
 
     net_send_packet(arp_packet, 42);
 
-    /* Yanit gelene kadar RX'i yokla (aksi halde kuyruktaki yanit islenmez). */
+    /* Yanit gelene kadar RX'i yokla (aksi halde kuyruktaki yanit islenmez).
+     * Bekleme pause spin'i degil hlt ile yapilir: CPU yanit gelene kadar
+     * bosuna yanip kavurmaz, timer kesintisiyle (1 ms) uyaniip yoklar. */
     for (int attempt = 0; attempt < 50; attempt++) {
-        for (int wait = 0; wait < 20000; wait++) { __asm__ volatile("pause"); }
+        clock_sleep_ms(1);
         ipv4_poll();
         for (int i = 0; i < ARP_CACHE_SIZE; i++) {
             if (arp_cache[i].valid &&
