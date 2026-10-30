@@ -478,6 +478,11 @@ int svg_render(const char *svg, int W, int H, uint32_t *out) {
                 so[stk_n] = stroke; ssa[stk_n] = stroke_a; ssw[stk_n] = sw; son[stk_n] = stroke_on;
                 stk_n++;
                 parse_transform(tag, &gtx, &gty, &gsx, &gsy, &gcos, &gsin);
+            }
+            /* Kok svg etiketindeki sunum oznitelikleri de devralinir;
+             * aksi halde <svg fill="none" stroke=...> yok sayilir ve
+             * sekiller varsayilan dolguyla cizilir. */
+            {
                 char v[64]; float a;
                 if (attr_copy(tag, "fill", v, sizeof(v))) { parse_color(v, &fill, &a); fill_a = a; fill_on = a > 0; }
                 if (attr_copy(tag, "stroke", v, sizeof(v))) { parse_color(v, &stroke, &a); stroke_a = a; stroke_on = a > 0; }
