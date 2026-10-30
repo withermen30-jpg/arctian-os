@@ -113,6 +113,8 @@ docs/          mimari, derleme, uygulama geliştirme
   tarafında `wf` ile derlenir.
 - Depodaki imza anahtarı `tools/keys/dev_rsa2048.txt` bir **geliştirme** anahtarıdır;
   yayın öncesi `tools/sig_keygen.py` ile yenisi üretilmelidir.
+- Kod tabanında bilinen hataların tam listesi: [docs/bilinen-hatalar.md](docs/bilinen-hatalar.md).
+  Düzelttikçe oradan düşürüyorum; bir yere dokunmadan önce oraya göz atmakta fayda var.
 
 ## Lisans
 
