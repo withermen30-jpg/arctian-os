@@ -129,18 +129,13 @@ void backbuffer_blit(void) {
     int copy_w = (bb_width < fb->width) ? bb_width : fb->width;
     int copy_h = (bb_height < fb->height) ? bb_height : fb->height;
 
-    /* 64-bit bloat ile hizli kopyala */
+    /* Satir bazli kopya: piksel piksel dongu yerine CRT'nin 8 baytlik
+     * memcpy'si. TCG'de dongu gonderme maliyeti kopyadan pahalidi;
+     * satir uctaki tek baytlar memcpy'nin kendi hizalama yoluna kalir. */
     for (int row = 0; row < copy_h; row++) {
-        int bb_off = row * bb_width;
-        int fb_off = row * fb_pitch_dwords;
-        int col = 0;
-        for (; col + 1 < copy_w; col += 2) {
-            ((uint64_t *)(fb->address + fb_off))[col / 2] =
-                ((uint64_t *)(backbuffer + bb_off))[col / 2];
-        }
-        if (col < copy_w) {
-            fb->address[fb_off + col] = backbuffer[bb_off + col];
-        }
+        memcpy(fb->address + row * fb_pitch_dwords,
+               backbuffer + row * bb_width,
+               (size_t)copy_w * 4u);
     }
 }
 
@@ -162,14 +157,9 @@ void backbuffer_blit_rect(int x, int y, int w, int h) {
     if (w <= 0 || h <= 0) return;
 
     for (int row = y; row < y + h; row++) {
-        int bb_off = row * bb_width + x;
-        int fb_off = row * fb_pitch_dwords + x;
-        int col = 0;
-        for (; col + 1 < w; col += 2) {
-            ((uint64_t *)(fb->address + fb_off))[col / 2] =
-                ((uint64_t *)(backbuffer + bb_off))[col / 2];
-        }
-        if (col < w) fb->address[fb_off + col] = backbuffer[bb_off + col];
+        memcpy(fb->address + row * fb_pitch_dwords + x,
+               backbuffer + row * bb_width + x,
+               (size_t)w * 4u);
     }
 }
 
