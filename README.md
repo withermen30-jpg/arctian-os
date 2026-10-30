@@ -4,9 +4,7 @@ x86_64 için sıfırdan yazılmış, modüler bir masaüstü işletim sistemi. K
 kendi çekirdeği, kendi dosya sistemi (AFS), kendi TCP/IP yığını ve LVGL tabanlı bir masaüstü
 kabuğu vardır. Üçüncü parti bir mikroişletimci veya libc kullanılmaz.
 
-
-
-ÖNEMLİ NOT: OS in en başındaki kurulum ekranını kodlarken dürüst olmak gerekirse kolaya kaçtım ve muhtemelen o ekranı tamamen kaldıracağım çünkü slayt gösterisine benziyor tasarımı, eklediğime pişman olduğum bir yerdir.
+ÖNEMLİ NOT: OS in en başındaki özelleştirme ekranını yaparken şahsen çok özenmedim ve muhtemelen kaldıracağım çünkü göze slayt gösterisi gibi geliyor, lütfen şimdilik oraya takılmayın.
 
 **Sürüm: 0.7** — tek kaynak [`version.json`](version.json).
 
