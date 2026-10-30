@@ -368,21 +368,27 @@ static int find_idx(const char *name) {
 
 void *afs_create_handle(const char *name) {
     if (!mounted) afs_mount();
-    int ex = find_idx(name);
-    if (ex >= 0) return (void *)(intptr_t)(ex + 1);
+    /* Tek gecis: ad arayisi ve bos slot bulma ayni taramada yapilir.
+     * Eskiden tablo (512 girise kadar) iki kez dolasiyordu. */
+    int first_free = -1;
     for (uint32_t i = 0; i < H.max_files; i++) {
         if (!H.files[i].used) {
-            H.files[i].used = 1;
-            H.files[i].size = 0;
-            H.files[i].lba = H.data_next;
-            set_owner(&H.files[i], afs_is_dir(name));
-            cpy(H.files[i].name, name);
-            H.count++;
-            hdr_commit();
-            return (void *)(intptr_t)(i + 1);
+            if (first_free < 0) first_free = (int)i;
+            continue;
         }
+        if (seq(H.files[i].name, name))
+            return (void *)(intptr_t)(i + 1);
     }
-    return 0;
+    if (first_free < 0) return 0;
+    uint32_t i = (uint32_t)first_free;
+    H.files[i].used = 1;
+    H.files[i].size = 0;
+    H.files[i].lba = H.data_next;
+    set_owner(&H.files[i], afs_is_dir(name));
+    cpy(H.files[i].name, name);
+    H.count++;
+    hdr_commit();
+    return (void *)(intptr_t)(i + 1);
 }
 
 void *afs_find_handle(const char *name) {
