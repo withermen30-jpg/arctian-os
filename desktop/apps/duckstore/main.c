@@ -107,11 +107,42 @@ static int       g_detail_idx = -1;
 static int       g_confirm_idx = -1;
 
 static lv_obj_t *g_win;
+static lv_obj_t *g_toolbar;
+static lv_obj_t *g_body;
 static lv_obj_t *g_nav;
 static lv_obj_t *g_content;
 static lv_obj_t *g_status;
 static lv_obj_t *g_nav_btns[6];
+static lv_obj_t *g_nav_rod[6];
+static lv_obj_t *g_nav_lbl[6];
 static lv_obj_t *g_search_ta;
+static lv_obj_t *g_back_btn;
+static lv_obj_t *g_fwd_btn;
+
+/* Sayfa gecmisi (geri / ileri dugmeleri icin tek adim) */
+typedef struct { ds_page_t page; int detail; } ds_hist_t;
+static ds_hist_t g_back_st  = { PAGE_HOME, -1 };
+static ds_hist_t g_fwd_st   = { PAGE_HOME, -1 };
+static int       g_has_back = 0;
+static int       g_has_fwd  = 0;
+
+/* Spec basliklari icin ek tiny-TTF boyutlari (tema fontu15 px'tir) */
+extern const unsigned char font_ttf[];
+extern const unsigned int  font_ttf_len;
+static lv_font_t *s_font_big = 0;     /*22 px — hero basligi */
+static lv_font_t *s_font_small = 0;   /*11 px — etiket / rozet */
+static lv_font_t *s_font_sec = 0;     /*15 px — bolum basligi */
+
+/* Nav ikonlari (spec:24 viewBox,1.8 stroke,16 px, currentColor ≈ #C9CED8) */
+static const char *DS_NAV_IC[6][2] = {
+    /* pasif / aktif ayni; aktiflik zemin + sol cubuk + metin rengi ile */
+    { "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"1.8\"><path d=\"M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z\"/></svg>", 0 },
+    { "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"1.8\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-4-4\"/></svg>", 0 },
+    { "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"1.8\"><rect x=\"4\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/><rect x=\"14\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/><rect x=\"4\" y=\"14\" width=\"6\" height=\"6\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"6\" height=\"6\" rx=\"1\"/></svg>", 0 },
+    { "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"1.8\"><path d=\"M4 4h16v12H4zM8 20h8M12 16v4\"/></svg>", 0 },
+    { "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"1.8\"><path d=\"M12 4v12m0 0l-5-5m5 5l5-5M4 20h16\"/></svg>", 0 },
+    { "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"1.8\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><circle cx=\"9\" cy=\"10\" r=\"2\"/><path d=\"M21 17l-5-5-9 9\"/></svg>", 0 }
+};
 
 /* ---------------- Kucuk string yardimcilari ---------------- */
 static int dlen(const char *s) { int n = 0; if (s) while (s[n]) n++; return n; }
@@ -253,18 +284,37 @@ static lv_obj_t *ds_app_icon(lv_obj_t *parent, const ds_app_t *a, int size) {
 }
 
 /* ---------------- Yardimci widget'lar ---------------- */
+/* Spec: ana dugme30-32 px,6 px yaricap, vurgu zemin, beyaz; ikincil
+ * dugme koyu zemin + kenarlik. */
 static lv_obj_t *ds_button(lv_obj_t *parent, const char *txt, uint32_t bg,
                            uint32_t fg, int w, int h) {
     lv_obj_t *b = lv_button_create(parent);
     lv_obj_set_size(b, w, h);
-    lv_obj_set_style_radius(b, 8, 0);
+    lv_obj_set_style_radius(b, 6, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(b, 0, 0);
+    lv_obj_set_style_shadow_width(b, 0, 0);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
     lv_obj_set_style_text_color(l, lv_color_hex(fg), 0);
     lv_obj_center(l);
     return b;
+}
+
+/* Ikincil dugme: koyu zemin +1 px kenarlik (spec: #1e2129 / #333a47) */
+static lv_obj_t *ds_button_ol(lv_obj_t *parent, const char *txt, int w, int h) {
+    lv_obj_t *b = ds_button(parent, txt, ADL_SURFACE_2, ADL_TEXT, w, h);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(ADL_BORDER), 0);
+    return b;
+}
+
+/*16 px stroke ikon (spec:24 viewBox,1.8 stroke) */
+static lv_obj_t *ds_icon(lv_obj_t *parent, const char *svg, int size) {
+    lv_obj_t *ic = ds_svg_icon(parent, svg, size);
+    if (ic) return ic;
+    return ds_tile(parent, "?", ADL_SURFACE_2, size, 4);
 }
 
 static void ds_status(const char *msg, uint32_t col) {
@@ -484,7 +534,7 @@ static int g_feed_rc;
 static void ds_feed_work(void *u) { (void)u; g_feed_rc = ds_feed_load(); }
 static void ds_feed_done(void *u) {
     (void)u;
-    if (g_feed_rc == 0) ds_status("Hazir", ADL_OK);
+    if (g_feed_rc == 0) ds_status("", ADL_OK);
     else ds_status("Sunucuya ulasilamadi", ADL_DANGER);
     ds_rebuild();
 }
@@ -501,7 +551,7 @@ static void ds_search_work(void *u) { (void)u; g_search_rc = ds_search_server(g_
 static void ds_search_done(void *u) {
     (void)u;
     if (g_search_rc != 0 && g_app_count == 0) { ds_feed_fetch(); return; }
-    ds_status("Hazir", ADL_OK);
+    ds_status("", ADL_OK);
     ds_rebuild();
 }
 static void ds_search_fetch(void) {
@@ -516,7 +566,7 @@ static int g_walls_rc;
 static void ds_walls_work(void *u) { (void)u; g_walls_rc = ds_walls_load(); }
 static void ds_walls_done(void *u) {
     (void)u;
-    if (g_walls_rc == 0) ds_status("Hazir", ADL_OK);
+    if (g_walls_rc == 0) ds_status("", ADL_OK);
     else ds_status("Sunucuya ulasilamadi", ADL_DANGER);
     ds_rebuild();
 }
@@ -605,6 +655,8 @@ static void ds_do_open(int idx) {
 }
 
 /* ---------------- Navigasyon ---------------- */
+/* Spec: aktif oge #1e2330 zemin + sol kenarda3 px #60a5fa cubuk,
+ * metin beyaz; pasif oge zeminsiz, soluk metin. */
 static void ds_set_nav_active(void) {
     static const ds_page_t map[6] = {
         PAGE_HOME, PAGE_SEARCH, PAGE_CATS, PAGE_LIB, PAGE_UPDATES, PAGE_WALLS
@@ -613,7 +665,13 @@ static void ds_set_nav_active(void) {
         if (!g_nav_btns[i]) continue;
         int active = (g_page == map[i]);
         lv_obj_set_style_bg_color(g_nav_btns[i],
-            lv_color_hex(active ? ADL_ACCENT : ADL_SURFACE_2), 0);
+            lv_color_hex(active ? 0x1E2330 : ADL_SURFACE), 0);
+        if (g_nav_rod[i]) {
+            if (active) lv_obj_remove_flag(g_nav_rod[i], LV_OBJ_FLAG_HIDDEN);
+            else        lv_obj_add_flag(g_nav_rod[i], LV_OBJ_FLAG_HIDDEN);
+        }
+        if (g_nav_lbl[i]) lv_obj_set_style_text_color(g_nav_lbl[i],
+            lv_color_hex(active ? 0xFFFFFF : 0xB4BAC5), 0);
     }
 }
 
@@ -623,8 +681,36 @@ static ds_navctx_t g_navctx[6];
 static void ds_nav_cb(lv_event_t *e) {
     ds_navctx_t *c = (ds_navctx_t *)lv_event_get_user_data(e);
     if (!c) return;
+    if ((ds_page_t)c->page != g_page) {
+        g_back_st.page = g_page; g_back_st.detail = g_detail_idx;
+        g_has_back = 1; g_has_fwd = 0;
+    }
     g_page = (ds_page_t)c->page;
     g_detail_idx = -1;
+    ds_rebuild();
+    if (g_page == PAGE_HOME) ds_feed_fetch();
+}
+
+/* Arac satiri geri / ileri (tek adimlik sayfa gecmisi) */
+static void ds_tb_back_cb(lv_event_t *e) {
+    (void)e;
+    if (!g_has_back) return;
+    g_fwd_st.page = g_page; g_fwd_st.detail = g_detail_idx; g_has_fwd = 1;
+    g_page = g_back_st.page;
+    g_detail_idx = g_back_st.detail;
+    g_has_back = 0;
+    g_confirm_idx = -1;
+    ds_rebuild();
+}
+
+static void ds_tb_fwd_cb(lv_event_t *e) {
+    (void)e;
+    if (!g_has_fwd) return;
+    g_back_st.page = g_page; g_back_st.detail = g_detail_idx; g_has_back = 1;
+    g_page = g_fwd_st.page;
+    g_detail_idx = g_fwd_st.detail;
+    g_has_fwd = 0;
+    g_confirm_idx = -1;
     ds_rebuild();
 }
 
@@ -652,6 +738,8 @@ static void ds_confirm_no_cb(lv_event_t *e) {
 
 static void ds_detail_cb(lv_event_t *e) {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    g_back_st.page = g_page; g_back_st.detail = g_detail_idx;
+    g_has_back = 1; g_has_fwd = 0;
     g_detail_idx = idx;
     g_confirm_idx = -1;
     g_page = PAGE_DETAIL;
@@ -660,6 +748,7 @@ static void ds_detail_cb(lv_event_t *e) {
 
 static void ds_back_cb(lv_event_t *e) {
     (void)e;
+    if (g_has_back) { ds_tb_back_cb(e); return; }
     g_detail_idx = -1;
     g_confirm_idx = -1;
     g_page = PAGE_HOME;
@@ -717,9 +806,16 @@ static void ds_cat_cb(lv_event_t *e) {
 
 static void ds_win_del_cb(lv_event_t *e) {
     (void)e;
-    g_win = 0; g_nav = 0; g_content = 0; g_status = 0;
-    g_search_ta = 0;
-    for (int i = 0; i < 6; i++) g_nav_btns[i] = 0;
+    g_win = 0; g_toolbar = 0; g_body = 0;
+    g_nav = 0; g_content = 0; g_status = 0;
+    g_search_ta = 0; g_back_btn = 0; g_fwd_btn = 0;
+    g_has_back = 0; g_has_fwd = 0;
+    for (int i = 0; i < 6; i++) {
+        g_nav_btns[i] = 0; g_nav_rod[i] = 0; g_nav_lbl[i] = 0;
+    }
+    if (s_font_big)   { lv_tiny_ttf_destroy(s_font_big);   s_font_big = 0; }
+    if (s_font_small) { lv_tiny_ttf_destroy(s_font_small); s_font_small = 0; }
+    if (s_font_sec)   { lv_tiny_ttf_destroy(s_font_sec);   s_font_sec = 0; }
 }
 
 /* ---------------- Kartlar ---------------- */
@@ -733,37 +829,45 @@ static int ds_app_matches(const ds_app_t *a) {
     return ok;
 }
 
+/* Spec kartlari:1 px #262b35 kenarlik, #181b22 zemin,8 px yaricap,
+ *12 px ic bosluk;36 px ikon, ad,12 px meta,26 px kucuk dugme. */
 static lv_obj_t *ds_card(lv_obj_t *parent, int idx) {
     ds_app_t *a = &g_apps[idx];
-    lv_obj_t *c = lv_button_create(parent);
-    lv_obj_set_size(c, 208, 244);
-    lv_obj_set_style_radius(c, 12, 0);
-    lv_obj_set_style_bg_color(c, lv_color_hex(ADL_SURFACE_2), 0);
+    lv_obj_t *c = lv_obj_create(parent);
+    lv_obj_remove_style_all(c);
+    lv_obj_set_size(c, 208, LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(c, 8, 0);
+    lv_obj_set_style_bg_color(c, lv_color_hex(ADL_SURFACE), 0);
+    lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(c, 1, 0);
     lv_obj_set_style_border_color(c, lv_color_hex(ADL_BORDER), 0);
-    lv_obj_set_style_pad_all(c, 10, 0);
+    lv_obj_set_style_pad_all(c, 12, 0);
+    lv_obj_set_style_pad_row(c, 6, 0);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *ic = ds_app_icon(c, a, 64);
-    if (ic) lv_obj_align(ic, LV_ALIGN_TOP_LEFT, 4, 4);
+    lv_obj_t *ic = ds_app_icon(c, a, 36);
 
     lv_obj_t *t = lv_label_create(c);
     lv_label_set_text(t, a->title[0] ? a->title : a->id);
-    lv_obj_set_width(t, 184);
+    lv_obj_set_width(t, LV_PCT(100));
     lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(t, lv_color_hex(ADL_TEXT), 0);
-    lv_obj_align(t, LV_ALIGN_TOP_LEFT, 0, 82);
 
     lv_obj_t *cat = lv_label_create(c);
-    lv_label_set_text(cat, a->category[0] ? a->category : "Genel");
-    lv_obj_set_width(cat, 184);
+    lv_label_set_text_fmt(cat, "%s  -  %s",
+        a->category[0] ? a->category : "Genel",
+        a->version[0] ? a->version : "-");
+    lv_obj_set_width(cat, LV_PCT(100));
     lv_label_set_long_mode(cat, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(cat, lv_color_hex(ADL_TEXT_DIM), 0);
-    lv_obj_align(cat, LV_ALIGN_TOP_LEFT, 0, 108);
+    if (s_font_small) lv_obj_set_style_text_font(cat, s_font_small, 0);
 
     int inst = ds_installed(a->id);
     lv_obj_t *b = ds_button(c, inst ? "Ac" : "Yukle",
-                            inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 96, 34);
-    lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+                            inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 76, 26);
+    if (s_font_small) lv_obj_set_style_text_font(b, s_font_small, 0);
     if (inst) lv_obj_add_event_cb(b, ds_open_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     else      lv_obj_add_event_cb(b, ds_install_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
 
@@ -775,8 +879,9 @@ static lv_obj_t *ds_section(lv_obj_t *parent, const char *title) {
     lv_obj_t *l = lv_label_create(parent);
     lv_label_set_text(l, title);
     lv_obj_set_style_text_color(l, lv_color_hex(ADL_TEXT), 0);
-    lv_obj_set_style_pad_top(l, 10, 0);
-    lv_obj_set_style_pad_bottom(l, 4, 0);
+    if (s_font_sec) lv_obj_set_style_text_font(l, s_font_sec, 0);
+    lv_obj_set_style_pad_top(l, 14, 0);
+    lv_obj_set_style_pad_bottom(l, 6, 0);
     return l;
 }
 
@@ -787,38 +892,201 @@ static lv_obj_t *ds_grid(lv_obj_t *parent) {
     lv_obj_set_height(g, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(g, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(g, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_column(g, 12, 0);
-    lv_obj_set_style_pad_row(g, 12, 0);
+    lv_obj_set_style_pad_column(g, 10, 0);
+    lv_obj_set_style_pad_row(g, 10, 0);
     lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
     return g;
 }
 
-/* ---------------- Sayfalar ---------------- */
-static void ds_page_home(void) {
-    /* Vitrin banner */
-    lv_obj_t *hero = lv_obj_create(g_content);
+/* Spec:150 px one cikan kart — koyu panel + kenarlik,88 px ikon kutusu,
+ * "BU HAFTA SECILDI" etiketi,22 px baslik, meta ve iki dugme. */
+static lv_obj_t *ds_hero(lv_obj_t *parent, int idx) {
+    ds_app_t *a = &g_apps[idx];
+    lv_obj_t *hero = lv_obj_create(parent);
     lv_obj_remove_style_all(hero);
-    lv_obj_set_size(hero, LV_PCT(100), 120);
-    lv_obj_set_style_radius(hero, 14, 0);
-    lv_obj_set_style_bg_color(hero, lv_color_hex(0x1D4ED8), 0);
-    lv_obj_set_style_bg_grad_color(hero, lv_color_hex(0x7C3AED), 0);
-    lv_obj_set_style_bg_grad_dir(hero, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_size(hero, LV_PCT(100), 150);
+    lv_obj_set_style_radius(hero, 10, 0);
+    lv_obj_set_style_bg_color(hero, lv_color_hex(0x1A2233), 0);
     lv_obj_set_style_bg_opa(hero, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(hero, 1, 0);
+    lv_obj_set_style_border_color(hero, lv_color_hex(0x243047), 0);
+    lv_obj_set_style_pad_all(hero, 20, 0);
+    lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hero, 20, 0);
     lv_obj_remove_flag(hero, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *ht = lv_label_create(hero);
-    lv_label_set_text(ht, "DuckStore");
-    lv_obj_set_style_text_color(ht, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ht, LV_ALIGN_TOP_LEFT, 20, 18);
-    lv_obj_t *hs = lv_label_create(hero);
-    lv_label_set_text(hs, "Arctian icin uygulamalar - tek tikla kur, hemen kullan.");
-    lv_obj_set_style_text_color(hs, lv_color_hex(0xE0E7FF), 0);
-    lv_obj_align(hs, LV_ALIGN_TOP_LEFT, 20, 46);
+    /*88 px ikon kutusu (20 px yaricap, #2b3a5c) */
+    lv_obj_t *ibox = lv_obj_create(hero);
+    lv_obj_remove_style_all(ibox);
+    lv_obj_set_size(ibox, 88, 88);
+    lv_obj_set_style_radius(ibox, 20, 0);
+    lv_obj_set_style_bg_color(ibox, lv_color_hex(0x2B3A5C), 0);
+    lv_obj_set_style_bg_opa(ibox, LV_OPA_COVER, 0);
+    lv_obj_t *ic = ds_app_icon(ibox, a, 44);
+    if (ic) lv_obj_center(ic);
 
-    lv_obj_t *rb = ds_button(hero, "Yenile", 0xFFFFFF, 0x1D4ED8, 96, 34);
-    lv_obj_align(rb, LV_ALIGN_BOTTOM_RIGHT, -16, -14);
-    lv_obj_add_event_cb(rb, ds_refresh_cb, LV_EVENT_CLICKED, 0);
+    lv_obj_t *col = lv_obj_create(hero);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(col, 1);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(col, 2, 0);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
+    lv_obj_t *kick = lv_label_create(col);
+    lv_label_set_text(kick, "BU HAFTA SECILDI");
+    lv_obj_set_style_text_color(kick, lv_color_hex(0x7FA8F0), 0);
+    if (s_font_small) lv_obj_set_style_text_font(kick, s_font_small, 0);
+    lv_obj_set_style_text_letter_space(kick, 2, 0);
+
+    lv_obj_t *ttl = lv_label_create(col);
+    lv_label_set_text(ttl, a->title[0] ? a->title : a->id);
+    lv_obj_set_width(ttl, LV_PCT(100));
+    lv_label_set_long_mode(ttl, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(ttl, lv_color_hex(ADL_TEXT), 0);
+    if (s_font_big) lv_obj_set_style_text_font(ttl, s_font_big, 0);
+
+    lv_obj_t *meta = lv_label_create(col);
+    lv_label_set_text_fmt(meta, "%s  -  %s  -  %s KB",
+        a->publisher[0] ? a->publisher : "Bilinmiyor",
+        a->category[0] ? a->category : "Genel",
+        a->size[0] ? a->size : "?");
+    lv_obj_set_style_text_color(meta, lv_color_hex(ADL_TEXT_DIM), 0);
+    if (s_font_small) lv_obj_set_style_text_font(meta, s_font_small, 0);
+
+    int inst = ds_installed(a->id);
+    lv_obj_t *br = lv_obj_create(col);
+    lv_obj_remove_style_all(br);
+    lv_obj_set_size(br, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(br, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(br, 8, 0);
+    lv_obj_set_style_pad_top(br, 6, 0);
+    lv_obj_remove_flag(br, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *b1 = ds_button(br, inst ? "Ac" : "Al",
+                             inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 92, 32);
+    if (inst) lv_obj_add_event_cb(b1, ds_open_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    else      lv_obj_add_event_cb(b1, ds_install_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    lv_obj_t *b2 = ds_button_ol(br, "Ayrintilar", 92, 32);
+    lv_obj_add_event_cb(b2, ds_detail_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    return hero;
+}
+
+/* Spec "Onerilenler" karti: esnek genislik,36 px ikon, ad, meta,26 px Al */
+static lv_obj_t *ds_rec_card(lv_obj_t *parent, int idx) {
+    ds_app_t *a = &g_apps[idx];
+    lv_obj_t *c = lv_obj_create(parent);
+    lv_obj_remove_style_all(c);
+    lv_obj_set_height(c, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(c, 1);
+    lv_obj_set_style_radius(c, 8, 0);
+    lv_obj_set_style_bg_color(c, lv_color_hex(ADL_SURFACE), 0);
+    lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(c, 1, 0);
+    lv_obj_set_style_border_color(c, lv_color_hex(ADL_BORDER), 0);
+    lv_obj_set_style_pad_all(c, 12, 0);
+    lv_obj_set_style_pad_row(c, 6, 0);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *ic = ds_app_icon(c, a, 36);
+
+    lv_obj_t *t = lv_label_create(c);
+    lv_label_set_text(t, a->title[0] ? a->title : a->id);
+    lv_obj_set_width(t, LV_PCT(100));
+    lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(t, lv_color_hex(ADL_TEXT), 0);
+
+    lv_obj_t *mt = lv_label_create(c);
+    lv_label_set_text_fmt(mt, "%s  -  %s",
+        a->category[0] ? a->category : "Genel",
+        a->version[0] ? a->version : "-");
+    lv_obj_set_width(mt, LV_PCT(100));
+    lv_label_set_long_mode(mt, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(mt, lv_color_hex(ADL_TEXT_DIM), 0);
+    if (s_font_small) lv_obj_set_style_text_font(mt, s_font_small, 0);
+
+    int inst = ds_installed(a->id);
+    lv_obj_t *b = ds_button(c, inst ? "Ac" : "Al",
+                            inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 76, 26);
+    if (s_font_small) lv_obj_set_style_text_font(b, s_font_small, 0);
+    lv_obj_set_style_pad_top(b, 4, 0);
+    if (inst) lv_obj_add_event_cb(b, ds_open_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    else      lv_obj_add_event_cb(b, ds_install_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    lv_obj_add_event_cb(c, ds_detail_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    return c;
+}
+
+/* Spec "Populer" listesi:50 px satir,1 px alt cizgi, sira no,30 px ikon,
+ * ad + meta, boyut sutunu (70 px),28 px Al dugmesi. */
+static void ds_pop_row(lv_obj_t *parent, int idx, int rank) {
+    ds_app_t *a = &g_apps[idx];
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), 50);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 10, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(0x1F232B), 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_COVER, 0);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *no = lv_label_create(row);
+    lv_label_set_text_fmt(no, "%d", rank);
+    lv_obj_set_style_text_color(no, lv_color_hex(ADL_TEXT_DIM), 0);
+    lv_obj_set_width(no, 20);
+    if (s_font_small) lv_obj_set_style_text_font(no, s_font_small, 0);
+
+    lv_obj_t *ic = ds_app_icon(row, a, 30);
+
+    lv_obj_t *col = lv_obj_create(row);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_flex_grow(col, 1);
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(col, 0, 0);
+    lv_obj_set_style_pad_row(col, 1, 0);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *t = lv_label_create(col);
+    lv_label_set_text(t, a->title[0] ? a->title : a->id);
+    lv_obj_set_width(t, LV_PCT(100));
+    lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(t, lv_color_hex(ADL_TEXT), 0);
+
+    lv_obj_t *mt = lv_label_create(col);
+    lv_label_set_text_fmt(mt, "%s  -  %s",
+        a->category[0] ? a->category : "Genel",
+        a->publisher[0] ? a->publisher : "-");
+    lv_obj_set_width(mt, LV_PCT(100));
+    lv_label_set_long_mode(mt, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(mt, lv_color_hex(ADL_TEXT_DIM), 0);
+    if (s_font_small) lv_obj_set_style_text_font(mt, s_font_small, 0);
+
+    lv_obj_t *sz = lv_label_create(row);
+    lv_label_set_text_fmt(sz, "%s KB", a->size[0] ? a->size : "?");
+    lv_obj_set_width(sz, 70);
+    lv_label_set_long_mode(sz, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(sz, lv_color_hex(ADL_TEXT_DIM), 0);
+    if (s_font_small) lv_obj_set_style_text_font(sz, s_font_small, 0);
+
+    int inst = ds_installed(a->id);
+    lv_obj_t *b = ds_button(row, inst ? "Ac" : "Al",
+                            inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 74, 28);
+    if (s_font_small) lv_obj_set_style_text_font(b, s_font_small, 0);
+    if (inst) lv_obj_add_event_cb(b, ds_open_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    else      lv_obj_add_event_cb(b, ds_install_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+
+    lv_obj_add_event_cb(row, ds_detail_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+}
+
+/* ---------------- Sayfalar ---------------- */
+static void ds_page_home(void) {
     if (!g_feed_ok) {
         ds_section(g_content, "Baglanti bekleniyor");
         lv_obj_t *m = lv_label_create(g_content);
@@ -832,44 +1100,64 @@ static void ds_page_home(void) {
         return;
     }
 
-    /* One cikanlar */
-    ds_section(g_content, "One Cikanlar");
-    lv_obj_t *row = lv_obj_create(g_content);
-    lv_obj_remove_style_all(row);
-    lv_obj_set_width(row, LV_PCT(100));
-    lv_obj_set_height(row, 260);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row, 12, 0);
-    lv_obj_set_scroll_dir(row, LV_DIR_HOR);
+    if (g_app_count == 0) {
+        ds_section(g_content, "MAGAZA");
+        lv_obj_t *m = lv_label_create(g_content);
+        lv_label_set_text(m, "Henuz uygulama yok.");
+        lv_obj_set_style_text_color(m, lv_color_hex(ADL_TEXT_DIM), 0);
+        return;
+    }
 
-    int n = g_app_count < 8 ? g_app_count : 8;
-    for (int i = 0; i < n; i++) ds_card(row, i);
+    /*1. One cikan uygulama (spec hero) */
+    ds_hero(g_content, 0);
 
-    /* Tum uygulamalar */
-    ds_section(g_content, "Tum Uygulamalar");
-    lv_obj_t *grid = ds_grid(g_content);
-    for (int i = 0; i < g_app_count; i++) ds_card(grid, i);
+    /*2. Onerilenler: uc esit kart + "Tumunu gor" */
+    if (g_app_count > 1) {
+        lv_obj_t *hdr = lv_obj_create(g_content);
+        lv_obj_remove_style_all(hdr);
+        lv_obj_set_size(hdr, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_top(hdr, 10, 0);
+        lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *ht = lv_label_create(hdr);
+        lv_label_set_text(ht, "Onerilenler");
+        lv_obj_set_style_text_color(ht, lv_color_hex(ADL_TEXT), 0);
+        if (s_font_sec) lv_obj_set_style_text_font(ht, s_font_sec, 0);
+        lv_obj_t *more = lv_label_create(hdr);
+        lv_label_set_text(more, "Tumunu gor >");
+        lv_obj_set_style_text_color(more, lv_color_hex(ADL_TEXT_DIM), 0);
+        if (s_font_small) lv_obj_set_style_text_font(more, s_font_small, 0);
+
+        lv_obj_t *row = lv_obj_create(g_content);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(row, 10, 0);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        int n = g_app_count < 4 ? g_app_count : 4;
+        for (int i = 1; i < n; i++) ds_rec_card(row, i);
+    }
+
+    /*3. Populer: uygulamalarin sirali listesi (ilk alti) */
+    if (g_app_count > 0) {
+        ds_section(g_content, "Populer");
+        lv_obj_t *col = lv_obj_create(g_content);
+        lv_obj_remove_style_all(col);
+        lv_obj_set_size(col, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+        lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+        int rank = 1;
+        int lim = g_app_count < 6 ? g_app_count : 6;
+        for (int i = 0; i < lim; i++) ds_pop_row(col, i, rank++);
+    }
 }
 
 static void ds_page_search(void) {
-    lv_obj_t *bar = lv_obj_create(g_content);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_size(bar, LV_PCT(100), 44);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(bar, 8, 0);
-    lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-
-    g_search_ta = lv_textarea_create(bar);
-    lv_textarea_set_one_line(g_search_ta, true);
-    lv_textarea_set_placeholder_text(g_search_ta, "Uygulama ara...");
-    lv_obj_set_size(g_search_ta, 100, 40);
-    lv_obj_set_flex_grow(g_search_ta, 1);
-    if (g_query[0]) lv_textarea_set_text(g_search_ta, g_query);
-
-    lv_obj_t *sb = ds_button(bar, "Ara", ADL_ACCENT, 0xFFFFFF, 90, 40);
-    lv_obj_add_event_cb(sb, ds_search_cb, LV_EVENT_CLICKED, 0);
-    lv_obj_add_event_cb(g_search_ta, ds_search_cb, LV_EVENT_READY, 0);
+    /* Arama kutusu arac satirinda yasar (spec: tek arama kutusu);
+     * bu sayfa yalnizca sonuclari gosterir. */
+    if (g_search_ta && g_query[0]) lv_textarea_set_text(g_search_ta, g_query);
 
     ds_section(g_content, g_query[0] ? "Sonuclar" : "Tum Uygulamalar");
     lv_obj_t *grid = ds_grid(g_content);
@@ -943,7 +1231,6 @@ static void ds_page_lib(void) {
     lv_obj_set_width(list, LV_PCT(100));
     lv_obj_set_height(list, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list, 8, 0);
     lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
     for (int i = 0; i < cnt; i++) {
@@ -952,40 +1239,68 @@ static void ds_page_lib(void) {
         const char *ver = arctian_store->installed_version_at(i);
         ds_app_t *fa = ds_find_feed(id);
 
+        /* Spec satiri:50 px,1 px alt cizgi,30 px ikon, ad + meta,28 px dugmeler */
         lv_obj_t *row = lv_obj_create(list);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, LV_PCT(100), 72);
-        lv_obj_set_style_radius(row, 10, 0);
-        lv_obj_set_style_bg_color(row, lv_color_hex(ADL_SURFACE_2), 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_size(row, LV_PCT(100), 50);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 10, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(0x1F232B), 0);
+        lv_obj_set_style_border_opa(row, LV_OPA_COVER, 0);
 
-        lv_obj_t *ic = fa ? ds_app_icon(row, fa, 48)
-                          : ds_tile(row, title, ds_color_for(id), 48, 10);
-        lv_obj_align(ic, LV_ALIGN_LEFT_MID, 12, 0);
+        lv_obj_t *ic = fa ? ds_app_icon(row, fa, 30)
+                          : ds_tile(row, title, ds_color_for(id), 30, 7);
+    
+        lv_obj_t *col = lv_obj_create(row);
+        lv_obj_remove_style_all(col);
+        lv_obj_set_flex_grow(col, 1);
+        lv_obj_set_height(col, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_all(col, 0, 0);
+        lv_obj_set_style_pad_row(col, 1, 0);
+        lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
-        lv_obj_t *tl = lv_label_create(row);
+        lv_obj_t *tl = lv_label_create(col);
         lv_label_set_text(tl, title);
         lv_obj_set_style_text_color(tl, lv_color_hex(ADL_TEXT), 0);
-        lv_obj_align(tl, LV_ALIGN_LEFT_MID, 74, -10);
+        lv_obj_set_width(tl, LV_PCT(100));
+        lv_label_set_long_mode(tl, LV_LABEL_LONG_DOT);
 
-        lv_obj_t *vl = lv_label_create(row);
+        lv_obj_t *vl = lv_label_create(col);
         lv_label_set_text_fmt(vl, "Surum %s", ver && ver[0] ? ver : "-");
         lv_obj_set_style_text_color(vl, lv_color_hex(ADL_TEXT_DIM), 0);
-        lv_obj_align(vl, LV_ALIGN_LEFT_MID, 74, 12);
+        if (s_font_small) lv_obj_set_style_text_font(vl, s_font_small, 0);
 
-        lv_obj_t *ob = ds_button(row, "Ac", ADL_OK, 0xFFFFFF, 84, 34);
-        lv_obj_align(ob, LV_ALIGN_RIGHT_MID, -108, 0);
+        lv_obj_t *ob = ds_button(row, "Ac", ADL_OK, 0xFFFFFF, 60, 28);
+        if (s_font_small) lv_obj_set_style_text_font(ob, s_font_small, 0);
         lv_obj_add_event_cb(ob, ds_open_id_cb, LV_EVENT_CLICKED, (void *)id);
 
-        lv_obj_t *db = ds_button(row, "Kaldir", ADL_DANGER, 0xFFFFFF, 90, 34);
-        lv_obj_align(db, LV_ALIGN_RIGHT_MID, -12, 0);
+        lv_obj_t *db = ds_button_ol(row, "Kaldir", 74, 28);
+        if (s_font_small) lv_obj_set_style_text_font(db, s_font_small, 0);
         lv_obj_add_event_cb(db, ds_uninstall_id_cb, LV_EVENT_CLICKED, (void *)id);
     }
 }
 
 static void ds_page_updates(void) {
-    ds_section(g_content, "Guncellemeler");
+    lv_obj_t *hdr = lv_obj_create(g_content);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_bottom(hdr, 6, 0);
+    lv_obj_t *ht = lv_label_create(hdr);
+    lv_label_set_text(ht, "Guncellemeler");
+    lv_obj_set_style_text_color(ht, lv_color_hex(ADL_TEXT), 0);
+    lv_obj_t *rb = ds_button_ol(hdr, "Yenile", 76, 28);
+    if (s_font_small) lv_obj_set_style_text_font(rb, s_font_small, 0);
+    lv_obj_add_event_cb(rb, ds_refresh_cb, LV_EVENT_CLICKED, 0);
+
     int cnt = arctian_store && arctian_store->count_installed
               ? arctian_store->count_installed() : 0;
     int found = 0;
@@ -1277,45 +1592,78 @@ static void ds_page_detail(void) {
     if (idx < 0 || idx >= g_app_count) { g_page = PAGE_HOME; ds_page_home(); return; }
     ds_app_t *a = &g_apps[idx];
 
-    lv_obj_t *back = ds_button(g_content, "< Geri", ADL_SURFACE_2, 0xFFFFFF, 90, 36);
+    lv_obj_t *back = ds_button_ol(g_content, "< Geri", 78, 30);
+    if (s_font_small) lv_obj_set_style_text_font(back, s_font_small, 0);
     lv_obj_add_event_cb(back, ds_back_cb, LV_EVENT_CLICKED, 0);
 
+    /* Baslik paneli (spec hero dili: koyu panel,88 px ikon kutusu,22 px ad) */
     lv_obj_t *head = lv_obj_create(g_content);
     lv_obj_remove_style_all(head);
-    lv_obj_set_size(head, LV_PCT(100), 120);
+    lv_obj_set_size(head, LV_PCT(100), 140);
+    lv_obj_set_style_radius(head, 10, 0);
+    lv_obj_set_style_bg_color(head, lv_color_hex(0x1A2233), 0);
+    lv_obj_set_style_bg_opa(head, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(head, 1, 0);
+    lv_obj_set_style_border_color(head, lv_color_hex(0x243047), 0);
+    lv_obj_set_style_pad_all(head, 20, 0);
+    lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(head, 20, 0);
     lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *ic = ds_app_icon(head, a, 96);
-    if (ic) lv_obj_align(ic, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *ibox = lv_obj_create(head);
+    lv_obj_remove_style_all(ibox);
+    lv_obj_set_size(ibox, 88, 88);
+    lv_obj_set_style_radius(ibox, 20, 0);
+    lv_obj_set_style_bg_color(ibox, lv_color_hex(0x2B3A5C), 0);
+    lv_obj_set_style_bg_opa(ibox, LV_OPA_COVER, 0);
+    lv_obj_t *ic = ds_app_icon(ibox, a, 44);
+    if (ic) lv_obj_center(ic);
 
-    lv_obj_t *t = lv_label_create(head);
+    lv_obj_t *col = lv_obj_create(head);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_flex_grow(col, 1);
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(col, 3, 0);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *t = lv_label_create(col);
     lv_label_set_text(t, a->title[0] ? a->title : a->id);
     lv_obj_set_style_text_color(t, lv_color_hex(ADL_TEXT), 0);
-    lv_obj_align(t, LV_ALIGN_TOP_LEFT, 116, 6);
+    if (s_font_big) lv_obj_set_style_text_font(t, s_font_big, 0);
+    lv_obj_set_width(t, LV_PCT(100));
+    lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
 
-    lv_obj_t *pub = lv_label_create(head);
+    lv_obj_t *pub = lv_label_create(col);
     lv_label_set_text_fmt(pub, "%s  -  %s", a->publisher[0] ? a->publisher : "Bilinmiyor",
                           a->category[0] ? a->category : "Genel");
     lv_obj_set_style_text_color(pub, lv_color_hex(ADL_TEXT_DIM), 0);
-    lv_obj_align(pub, LV_ALIGN_TOP_LEFT, 116, 34);
+    if (s_font_small) lv_obj_set_style_text_font(pub, s_font_small, 0);
 
-    lv_obj_t *meta = lv_label_create(head);
+    lv_obj_t *meta = lv_label_create(col);
     lv_label_set_text_fmt(meta, "Surum %s   Boyut %s KB",
                           a->version[0] ? a->version : "-",
                           a->size[0] ? a->size : "?");
     lv_obj_set_style_text_color(meta, lv_color_hex(ADL_TEXT_DIM), 0);
-    lv_obj_align(meta, LV_ALIGN_TOP_LEFT, 116, 58);
+    if (s_font_small) lv_obj_set_style_text_font(meta, s_font_small, 0);
+
+    lv_obj_t *br = lv_obj_create(col);
+    lv_obj_remove_style_all(br);
+    lv_obj_set_size(br, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(br, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(br, 8, 0);
+    lv_obj_set_style_pad_top(br, 6, 0);
+    lv_obj_remove_flag(br, LV_OBJ_FLAG_SCROLLABLE);
 
     int inst = ds_installed(a->id);
-    lv_obj_t *ob = ds_button(head, inst ? "Ac" : "Yukle",
-                             inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 130, 40);
-    lv_obj_align(ob, LV_ALIGN_BOTTOM_LEFT, 116, -4);
+    lv_obj_t *ob = ds_button(br, inst ? "Ac" : "Yukle",
+                             inst ? ADL_OK : ADL_ACCENT, 0xFFFFFF, 92, 32);
     if (inst) lv_obj_add_event_cb(ob, ds_open_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     else      lv_obj_add_event_cb(ob, ds_install_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
 
     if (inst) {
-        lv_obj_t *db = ds_button(head, "Kaldir", ADL_DANGER, 0xFFFFFF, 130, 40);
-        lv_obj_align(db, LV_ALIGN_BOTTOM_LEFT, 258, -4);
+        lv_obj_t *db = ds_button_ol(br, "Kaldir", 92, 32);
         lv_obj_add_event_cb(db, ds_uninstall_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     }
 
@@ -1369,57 +1717,165 @@ static void ds_rebuild(void) {
 }
 
 /* ---------------- Arayuz kurulumu ---------------- */
+/* Spec DuckStore: sol kenar cubugu184 px, ogeler34 px +6 px yaricap,
+ *16 px ikon +10 px bosluk, aktif ogede sol3 px vurgu cubugu,
+ * bolum basliklari11 px, sayac rozeti mavi daire. */
 static const char *g_nav_labels[6] = {
     "Ana Sayfa", "Ara", "Kategoriler", "Kitapligim", "Guncellemeler", "Arka Planlar"
 };
 
 static void ds_build_nav(void) {
-    g_nav = lv_obj_create(g_win);
+    g_nav = lv_obj_create(g_body);
     lv_obj_remove_style_all(g_nav);
-    lv_obj_set_size(g_nav, 190, LV_PCT(100));
+    lv_obj_set_size(g_nav, 184, LV_PCT(100));
     lv_obj_set_style_bg_color(g_nav, lv_color_hex(ADL_SURFACE), 0);
     lv_obj_set_style_bg_opa(g_nav, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(g_nav, 12, 0);
-    lv_obj_set_style_pad_row(g_nav, 8, 0);
+    lv_obj_set_style_pad_all(g_nav, 10, 0);
+    lv_obj_set_style_pad_row(g_nav, 2, 0);
     lv_obj_set_flex_flow(g_nav, LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(g_nav, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_border_width(g_nav, 1, 0);
+    lv_obj_set_style_border_side(g_nav, LV_BORDER_SIDE_RIGHT, 0);
+    lv_obj_set_style_border_color(g_nav, lv_color_hex(0x262A33), 0);
+    lv_obj_set_style_border_opa(g_nav, LV_OPA_COVER, 0);
 
-    lv_obj_t *logo = lv_label_create(g_nav);
-    lv_label_set_text(logo, "DuckStore");
-    lv_obj_set_style_text_color(logo, lv_color_hex(ADL_ACCENT), 0);
-    lv_obj_set_style_pad_bottom(logo, 8, 0);
+    /* Bolum basligi (spec:11 px, #7d8491) */
+    lv_obj_t *sec = lv_label_create(g_nav);
+    lv_label_set_text(sec, "MAGAZA");
+    lv_obj_set_style_text_color(sec, lv_color_hex(0x7D8491), 0);
+    if (s_font_small) lv_obj_set_style_text_font(sec, s_font_small, 0);
+    lv_obj_set_style_pad_top(sec, 2, 0);
+    lv_obj_set_style_pad_bottom(sec, 4, 0);
 
     for (int i = 0; i < 6; i++) {
         g_navctx[i].page = i;
-        lv_obj_t *b = lv_button_create(g_nav);
-        lv_obj_set_size(b, LV_PCT(100), 40);
-        lv_obj_set_style_radius(b, 8, 0);
-        lv_obj_set_style_bg_color(b, lv_color_hex(ADL_SURFACE_2), 0);
-        lv_obj_set_style_border_width(b, 0, 0);
+        lv_obj_t *b = lv_obj_create(g_nav);
+        lv_obj_remove_style_all(b);
+        lv_obj_set_size(b, LV_PCT(100), 34);
+        lv_obj_set_style_radius(b, 6, 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(ADL_SURFACE), 0);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+        lv_obj_set_flex_flow(b, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(b, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(b, 10, 0);
+        lv_obj_set_style_pad_left(b, 10, 0);
+        lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(b, ds_nav_cb, LV_EVENT_CLICKED, &g_navctx[i]);
+        adl_focus_ring_attach(b);
+
+        /* Sol aktiflik cubugu (3 px, #60a5fa; sol kenara yapisik, ilk anda gizli).
+         * Flex akisindan cikarilir, aksi halde ic bosluga duser. */
+        lv_obj_t *rod = lv_obj_create(b);
+        lv_obj_remove_style_all(rod);
+        lv_obj_set_size(rod, 3, 16);
+        lv_obj_set_style_radius(rod, 2, 0);
+        lv_obj_set_style_bg_color(rod, lv_color_hex(0x60A5FA), 0);
+        lv_obj_set_style_bg_opa(rod, LV_OPA_COVER, 0);
+        lv_obj_add_flag(rod, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_align(rod, LV_ALIGN_LEFT_MID, 1, 0);
+        lv_obj_add_flag(rod, LV_OBJ_FLAG_HIDDEN);
+
+        lv_obj_t *ic = ds_svg_icon(b, DS_NAV_IC[i][0], 16);
+    
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, g_nav_labels[i]);
-        lv_obj_set_style_text_color(l, lv_color_hex(ADL_TEXT), 0);
-        lv_obj_align(l, LV_ALIGN_LEFT_MID, 12, 0);
-        lv_obj_add_event_cb(b, ds_nav_cb, LV_EVENT_CLICKED, &g_navctx[i]);
+        lv_obj_set_style_text_color(l, lv_color_hex(0xB4BAC5), 0);
+        if (i == 5) lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+
         g_nav_btns[i] = b;
+        g_nav_rod[i] = rod;
+        g_nav_lbl[i] = l;
     }
 
+    /* Durum satiri: normalde bos; yalnizca islem geri bildirimi yazar
+     * (spec'te ayri durum cubugu yok, bu yuzden sessiz ve soluk). */
     g_status = lv_label_create(g_nav);
     lv_obj_set_width(g_status, LV_PCT(100));
     lv_label_set_long_mode(g_status, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(g_status, "Hazir");
+    lv_label_set_text(g_status, "");
     lv_obj_set_style_text_color(g_status, lv_color_hex(ADL_TEXT_DIM), 0);
+    if (s_font_small) lv_obj_set_style_text_font(g_status, s_font_small, 0);
     lv_obj_set_style_pad_top(g_status, 12, 0);
 }
 
+/* Spec:50 px arac satiri — sol iki30 px gezinme dugmesi, sagda300x32
+ * arama kutusu ve30 px daire avatar. */
+static lv_obj_t *ds_toolbar_icon_btn(lv_obj_t *parent, const char *svg) {
+    lv_obj_t *b = lv_obj_create(parent);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 30, 30);
+    lv_obj_set_style_radius(b, 6, 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(ADL_SURFACE), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(0x2C313B), 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *ic = ds_icon(b, svg, 16);
+    if (ic) lv_obj_center(ic);
+    return b;
+}
+
+static void ds_build_toolbar(void) {
+    g_toolbar = lv_obj_create(g_win);
+    lv_obj_remove_style_all(g_toolbar);
+    lv_obj_set_size(g_toolbar, LV_PCT(100), 50);
+    lv_obj_set_style_bg_color(g_toolbar, lv_color_hex(ADL_BG), 0);
+    lv_obj_set_style_bg_opa(g_toolbar, LV_OPA_COVER, 0);
+    lv_obj_set_flex_flow(g_toolbar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(g_toolbar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(g_toolbar, 10, 0);
+    lv_obj_set_style_pad_left(g_toolbar, 14, 0);
+    lv_obj_set_style_pad_right(g_toolbar, 14, 0);
+    lv_obj_remove_flag(g_toolbar, LV_OBJ_FLAG_SCROLLABLE);
+
+    g_back_btn = ds_toolbar_icon_btn(g_toolbar,
+        "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"2\"><path d=\"M15 18l-6-6 6-6\"/></svg>");
+    lv_obj_add_event_cb(g_back_btn, ds_tb_back_cb, LV_EVENT_CLICKED, 0);
+    g_fwd_btn = ds_toolbar_icon_btn(g_toolbar,
+        "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#C9CED8\" stroke-width=\"2\"><path d=\"M9 18l6-6-6-6\"/></svg>");
+    lv_obj_add_event_cb(g_fwd_btn, ds_tb_fwd_cb, LV_EVENT_CLICKED, 0);
+
+    lv_obj_t *sp = lv_obj_create(g_toolbar);
+    lv_obj_remove_style_all(sp);
+    lv_obj_set_size(sp, 0, 1);
+    lv_obj_set_flex_grow(sp, 1);
+
+    /* Arama kutusu:300x32, #0f1115 zemin, lupe + yer tutucu */
+    g_search_ta = lv_textarea_create(g_toolbar);
+    lv_textarea_set_one_line(g_search_ta, true);
+    lv_textarea_set_placeholder_text(g_search_ta, "Uygulamalar, oyunlar, daha fazlasi");
+    lv_obj_set_size(g_search_ta, 300, 32);
+    lv_obj_set_style_radius(g_search_ta, 6, 0);
+    lv_obj_set_style_bg_color(g_search_ta, lv_color_hex(0x0F1115), 0);
+    lv_obj_set_style_border_width(g_search_ta, 1, 0);
+    lv_obj_set_style_border_color(g_search_ta, lv_color_hex(0x2C313B), 0);
+    lv_obj_set_style_pad_all(g_search_ta, 6, 0);
+    lv_obj_add_event_cb(g_search_ta, ds_search_cb, LV_EVENT_READY, 0);
+
+    /* Avatar:30 px daire, "K" (spec: #2a3550 / #dbe7ff) */
+    lv_obj_t *av = lv_obj_create(g_toolbar);
+    lv_obj_remove_style_all(av);
+    lv_obj_set_size(av, 30, 30);
+    lv_obj_set_style_radius(av, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(av, lv_color_hex(0x2A3550), 0);
+    lv_obj_set_style_bg_opa(av, LV_OPA_COVER, 0);
+    lv_obj_t *al = lv_label_create(av);
+    lv_label_set_text(al, "K");
+    lv_obj_set_style_text_color(al, lv_color_hex(0xDBE7FF), 0);
+    lv_obj_center(al);
+}
+
 static void ds_build_content(void) {
-    g_content = lv_obj_create(g_win);
+    g_content = lv_obj_create(g_body);
     lv_obj_remove_style_all(g_content);
     lv_obj_set_height(g_content, LV_PCT(100));
     lv_obj_set_flex_grow(g_content, 1);
     lv_obj_set_style_bg_color(g_content, lv_color_hex(ADL_BG), 0);
     lv_obj_set_style_bg_opa(g_content, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(g_content, 16, 0);
+    lv_obj_set_style_pad_left(g_content, 20, 0);
+    lv_obj_set_style_pad_right(g_content, 20, 0);
     lv_obj_set_style_pad_row(g_content, 6, 0);
     lv_obj_set_flex_flow(g_content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(g_content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -1431,9 +1887,13 @@ void app_entry(lv_obj_t *win, asi_t *asi) {
     s_asi = asi;
 
     g_win = win;
+    g_toolbar = 0; g_body = 0;
     g_nav = 0; g_content = 0; g_status = 0;
-    g_search_ta = 0;
-    for (int i = 0; i < 6; i++) g_nav_btns[i] = 0;
+    g_search_ta = 0; g_back_btn = 0; g_fwd_btn = 0;
+    g_has_back = 0; g_has_fwd = 0;
+    for (int i = 0; i < 6; i++) {
+        g_nav_btns[i] = 0; g_nav_rod[i] = 0; g_nav_lbl[i] = 0;
+    }
 
     g_app_count = 0;
     g_feed_ok = 0;
@@ -1442,12 +1902,30 @@ void app_entry(lv_obj_t *win, asi_t *asi) {
     g_detail_idx = -1;
     g_page = PAGE_HOME;
 
-    lv_obj_set_flex_flow(win, LV_FLEX_FLOW_ROW);
+    /* Spec: dikey akis —36 px pencere basligi (iskelet) +50 px arac
+     * satiri ustte, altta govde (184 px yan cubuk + ana alan). */
+    lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_all(win, 0, 0);
-    lv_obj_set_style_pad_column(win, 0, 0);
+    lv_obj_set_style_pad_row(win, 0, 0);
+
+    /* Spec basliklari icin yerel fontlar (tema fontu15 px'tir) */
+    if (!s_font_big)   s_font_big   = lv_tiny_ttf_create_data(font_ttf, font_ttf_len, 22);
+    if (!s_font_small) s_font_small = lv_tiny_ttf_create_data(font_ttf, font_ttf_len, 11);
+    if (!s_font_sec)   s_font_sec   = lv_tiny_ttf_create_data(font_ttf, font_ttf_len, 15);
 
     ds_cfg_load();
+    ds_build_toolbar();
+
+    g_body = lv_obj_create(win);
+    lv_obj_remove_style_all(g_body);
+    lv_obj_set_size(g_body, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_grow(g_body, 1);
+    lv_obj_set_flex_flow(g_body, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(g_body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_all(g_body, 0, 0);
+    lv_obj_remove_flag(g_body, LV_OBJ_FLAG_SCROLLABLE);
+
     ds_build_nav();
     ds_build_content();
     lv_obj_add_event_cb(win, ds_win_del_cb, LV_EVENT_DELETE, 0);
