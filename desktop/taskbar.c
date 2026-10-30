@@ -593,6 +593,9 @@ void dock_battery_level(int pct)
 {
     if (pct < 0) pct = 100;      /* AC: dolu goster */
     if (pct > 100) pct = 100;
+    /* Seviye degismediyse SVG'yi yeniden rasterlestirmeye gerek yok;
+     * power_tick her ~2 sn'de bir ayni yuzdeyle buraya gelir. */
+    if (pct == s_bat_level) return;
     s_bat_level = pct;
     bat_render();
 }
