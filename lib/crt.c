@@ -3,17 +3,35 @@
  * memcpy/memset ve basit matematik fonksiyonlari.
  */
 #include <stddef.h>
+#include <stdint.h>
+
+/* 64 bitlik sozler hizali olmak zorunda degil; x86-64 hizada olmayan
+ * erisimi destekler. aligned(1)+may_alias ile hem hizada-olmayan hem de
+ * strict-aliasing kurallarini bozmayan okuma/yazma yapilir. */
+typedef uint64_t u64p __attribute__((aligned(1), may_alias));
+
+/* Bu fonksiyonlar sistemin en sicak yoludur: LVGL dolumlari, blok onbellek
+ * sektor kopyalari, tiny_ttf ve PNG cozucu hepsini cagirir. Bayt bayt
+ * dongu yerine once hedefi 8'e hizalar, sonra 8 baytlik bloklarla calisir. */
 
 void *memcpy(void *dst, const void *src, size_t n) {
     unsigned char *d = (unsigned char *)dst;
     const unsigned char *s = (const unsigned char *)src;
-    for (size_t i = 0; i < n; i++) d[i] = s[i];
+    while (n && ((size_t)d & 7u)) { *d++ = *s++; n--; }
+    while (n >= 8) { *(u64p *)d = *(const u64p *)s; d += 8; s += 8; n -= 8; }
+    while (n--) *d++ = *s++;
     return dst;
 }
 
 void *memset(void *dst, int c, size_t n) {
     unsigned char *d = (unsigned char *)dst;
-    for (size_t i = 0; i < n; i++) d[i] = (unsigned char)c;
+    unsigned char b = (unsigned char)c;
+    while (n && ((size_t)d & 7u)) { *d++ = b; n--; }
+    if (n >= 8) {
+        uint64_t pat = (uint64_t)b * 0x0101010101010101ull;
+        while (n >= 8) { *(u64p *)d = pat; d += 8; n -= 8; }
+    }
+    while (n--) *d++ = b;
     return dst;
 }
 
@@ -21,9 +39,14 @@ void *memmove(void *dst, const void *src, size_t n) {
     unsigned char *d = (unsigned char *)dst;
     const unsigned char *s = (const unsigned char *)src;
     if (d < s) {
-        for (size_t i = 0; i < n; i++) d[i] = s[i];
+        while (n && ((size_t)d & 7u)) { *d++ = *s++; n--; }
+        while (n >= 8) { *(u64p *)d = *(const u64p *)s; d += 8; s += 8; n -= 8; }
+        while (n--) *d++ = *s++;
     } else if (d > s) {
-        for (size_t i = n; i > 0; i--) d[i - 1] = s[i - 1];
+        /* Geriden kopya: once sonu 8'e hizala, sonra bloklarla geri sar. */
+        while (n && ((size_t)(d + n) & 7u)) { n--; d[n] = s[n]; }
+        while (n >= 8) { n -= 8; *(u64p *)(d + n) = *(const u64p *)(s + n); }
+        while (n) { n--; d[n] = s[n]; }
     }
     return dst;
 }
@@ -31,9 +54,16 @@ void *memmove(void *dst, const void *src, size_t n) {
 int memcmp(const void *a, const void *b, size_t n) {
     const unsigned char *x = (const unsigned char *)a;
     const unsigned char *y = (const unsigned char *)b;
-    for (size_t i = 0; i < n; i++) {
-        if (x[i] != y[i]) return x[i] < y[i] ? -1 : 1;
+    while (n >= 8) {
+        uint64_t xa = *(const u64p *)x, ya = *(const u64p *)y;
+        if (xa != ya) {
+            /* Ilk farkli bayti bul (kucuk uc sonlu: dusuk bayt once). */
+            unsigned diff = (unsigned)__builtin_ctzll(xa ^ ya) >> 3;
+            return x[diff] < y[diff] ? -1 : 1;
+        }
+        x += 8; y += 8; n -= 8;
     }
+    while (n--) { if (*x != *y) return *x < *y ? -1 : 1; x++; y++; }
     return 0;
 }
 
