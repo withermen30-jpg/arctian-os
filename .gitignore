@@ -29,6 +29,9 @@ store/public/
 *.ppm
 shots/
 
+# Yerel tasarim referansi — hicbir zaman depoya girmez
+tasarim.md
+
 # Duzenleyici / isletim sistemi
 .vscode/
 .idea/
