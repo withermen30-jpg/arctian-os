@@ -165,14 +165,30 @@ typedef struct __attribute__((packed)) {
 
 static uint32_t s_jseq = 0;
 
-static uint32_t crc32_buf(const void *data, uint32_t len) {
-    const uint8_t *p = (const uint8_t *)data;
-    uint32_t c = 0xFFFFFFFFu;
-    for (uint32_t i = 0; i < len; i++) {
-        c ^= p[i];
+/* CRC32 (cokterm 0xEDB88320) tablo destekli: her bayt icin 8 kere kaydirma
+ * yerine tek tablo bakmasi. Sonuc bit-bit surumle birebir aynidir, boylece
+ * eski disklerdeki header/gunluk CRC'leri degismez. hdr_commit her dosya
+ * isleminde header'in tamamini (bayt binlerce) iki kez tarar; bu yol
+ * dosya sisteminin en sicak hesap kismidir. */
+static uint32_t s_crc32_tab[256];
+static int      s_crc32_ready = 0;
+
+static void crc32_tab_init(void) {
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
         for (int k = 0; k < 8; k++)
             c = (c >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(c & 1u)));
+        s_crc32_tab[i] = c;
     }
+    s_crc32_ready = 1;
+}
+
+static uint32_t crc32_buf(const void *data, uint32_t len) {
+    const uint8_t *p = (const uint8_t *)data;
+    if (!s_crc32_ready) crc32_tab_init();
+    uint32_t c = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < len; i++)
+        c = s_crc32_tab[(c ^ p[i]) & 0xFFu] ^ (c >> 8);
     return ~c;
 }
 
