@@ -3,6 +3,7 @@
 #include "mmio.h"
 #include "kernel.h"
 #include "memory_map.h"
+#include "klog.h"
 
 static bdev_ops_t s_ops[BLOCKDEV_MAX];
 static int s_count = 0;
@@ -61,7 +62,12 @@ static bc_line_t *bc_slot(int dev, uint64_t lba) {
         for (int w = 1; w < BC_WAYS; w++)
             if (base[w].age < v->age) v = &base[w];
     }
-    if (v->valid && v->dirty) bd_raw_write(v->dev, v->lba, 1, v->data);
+    if (v->valid && v->dirty) {
+        /* Tahliye yazisi basarisiz olursa kirli veri kaybolur; sessiz
+         * gecmek yerine logla (kaydin geri gelme sansi yok, yer acmaliydik). */
+        if (bd_raw_write(v->dev, v->lba, 1, v->data) != 0)
+            klog_write(KLOG_ERR, "blockdev", "cache tahliye yazisi basarisiz");
+    }
     v->dev = dev;
     v->lba = lba;
     v->valid = 1;
@@ -110,13 +116,19 @@ static int bc_write(int idx, uint64_t lba, uint32_t count, const void *buf) {
 void blockdev_cache_enable(int on) { s_bc_on = on ? 1 : 0; }
 int  blockdev_cache_enabled(void) { return s_bc_on; }
 
-void blockdev_cache_flush_all(void) {
+int blockdev_cache_flush_all(void) {
+    int err = 0;
     for (int i = 0; i < BC_SECTORS; i++) {
         if (s_bc[i].valid && s_bc[i].dirty) {
-            bd_raw_write(s_bc[i].dev, s_bc[i].lba, 1, s_bc[i].data);
-            s_bc[i].dirty = 0;
+            /* Yazma basarisizsa dirty=1 kalir: sonraki flush yeniden
+             * dener; disk yazamadan "temiz" gostermek kayip demekti. */
+            if (bd_raw_write(s_bc[i].dev, s_bc[i].lba, 1, s_bc[i].data) == 0)
+                s_bc[i].dirty = 0;
+            else
+                err = -1;
         }
     }
+    return err;
 }
 
 void blockdev_cache_invalidate(void) {
@@ -164,8 +176,22 @@ int blockdev_info(int idx, blockdev_info_t *out) {
 
 int blockdev_read(int idx, uint64_t lba, uint32_t count, void *buf) {
     if (idx < 0 || idx >= s_count || !s_ops[idx].read) return -1;
-    if (!s_bc_on || count == 0 || count > BC_BYPASS)
-        return bd_raw_read(idx, lba, count, buf);
+    if (!s_bc_on || count == 0 || count > BC_BYPASS) {
+        int r = bd_raw_read(idx, lba, count, buf);
+        /* Bypass okumasi diska dogrudan gider; ama onbellekte bu araliga
+         * ait KIRLI satirlar diskteki hallerinden yenidir. Oldugu gibi
+         * dondurursen read-after-write bayat veri gorur (yazma tarafi
+         * b17df5c'de duzeltilmisti, okuma tarafi duruyordu). Taze
+         * kopyalari tamponun uzerine bindiriyoruz. */
+        if (r == 0 && s_bc_on) {
+            uint8_t *p = (uint8_t *)buf;
+            for (uint32_t i = 0; i < count; i++) {
+                bc_line_t *l = bc_find(idx, lba + i);
+                if (l) memcpy(p + (size_t)i * 512u, l->data, 512);
+            }
+        }
+        return r;
+    }
     return bc_read(idx, lba, count, buf);
 }
 
@@ -190,9 +216,11 @@ int blockdev_write(int idx, uint64_t lba, uint32_t count, const void *buf) {
 
 int blockdev_flush(int idx) {
     if (idx < 0 || idx >= s_count) return -1;
-    if (s_bc_on) blockdev_cache_flush_all();
-    if (!s_ops[idx].flush) return 0;
-    return s_ops[idx].flush(s_ops[idx].ctx);
+    int r = 0;
+    if (s_bc_on) r = blockdev_cache_flush_all();
+    if (!s_ops[idx].flush) return r;
+    if (s_ops[idx].flush(s_ops[idx].ctx) != 0) r = -1;
+    return r;
 }
 
 /* ---- Blok suruculere ozel basit MMIO mapper ----

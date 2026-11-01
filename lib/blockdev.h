@@ -52,7 +52,7 @@ int blockdev_flush(int idx);
 /* Blok onbellek (write-back). Varsayilan kapali; kernel_plus acar. */
 void blockdev_cache_enable(int on);
 int  blockdev_cache_enabled(void);
-void blockdev_cache_flush_all(void);
+int blockdev_cache_flush_all(void);   /* 0 = hepsi indi, -1 = en az bir yazma hatasi */
 void blockdev_cache_invalidate(void);
 void blockdev_cache_stats(uint32_t *hits, uint32_t *misses);
 
