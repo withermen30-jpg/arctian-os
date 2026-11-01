@@ -3362,7 +3362,10 @@ static int supports_matches(const char *q) {
     return supports_cond(&p);
 }
 
-static void css_parse(const char *css) {
+/* css_parse, @media/@supports govdesi icin kendini cagirdigi icin ic ice
+ * kural derinligi sinirsizdi; kotu niyetli sayfada yigin tasard. cdepth
+ * her seviyede artar, 16'dan derine inilmez. */
+static void css_parse_d(const char *css, int cdepth) {
     const char *p = css;
     while (*p && g_css_count < CSS_RULES) {
         while (*p == ' ' || *p == '\n' || *p == '\t' || *p == '\r' || *p == '}') p++;
@@ -3398,11 +3401,11 @@ static void css_parse(const char *css) {
                 if (l > 255) l = 255;
                 for (int i = 0; i < l; i++) mq[i] = sel[6 + i];
                 mq[l] = 0;
-                if (media_matches(mq)) {
+                if (media_matches(mq) && cdepth < 16) {
                     const char *bs = ob + 1;
                     char saved = *ce;
                     *(char *)ce = 0;
-                    css_parse(bs);
+                    css_parse_d(bs, cdepth + 1);
                     *(char *)ce = saved;
                 }
             }
@@ -3413,11 +3416,11 @@ static void css_parse(const char *css) {
                 if (l > 255) l = 255;
                 for (int i = 0; i < l; i++) cond[i] = sel[9 + i];
                 cond[l] = 0;
-                if (supports_matches(cond)) {
+                if (supports_matches(cond) && cdepth < 16) {
                     const char *bs = ob + 1;
                     char saved = *ce;
                     *(char *)ce = 0;
-                    css_parse(bs);
+                    css_parse_d(bs, cdepth + 1);
                     *(char *)ce = saved;
                 }
             }
@@ -3476,6 +3479,8 @@ static void css_parse(const char *css) {
     }
 }
 
+static void css_parse(const char *css) { css_parse_d(css, 0); }
+
 static int dn_new(const char *tag) {
     if (g_dn_count >= CSS_NODES) return -1;
     int i = g_dn_count++;
@@ -3496,6 +3501,34 @@ static void dn_add(int par, int ch) {
     g_dn[ch].parent = par;
     if (g_dn[par].last < 0) { g_dn[par].first = ch; g_dn[par].last = ch; }
     else { g_dn[g_dn[par].last].next = ch; g_dn[par].last = ch; }
+}
+
+/* Dugumu eski yerinden koparir. Eskiden bu yapılmadan yeniden eklenince
+ * eski ebeveynin ilk/son/next baglari kopuk dugume isaret eder, kardes
+ * listesinde dongu olusurdu. */
+static void dn_unlink(int ch) {
+    int p = g_dn[ch].parent;
+    if (p < 0) return;
+    int prev = -1;
+    int guard = 0;
+    for (int c = g_dn[p].first; c >= 0 && guard++ < CSS_NODES; c = g_dn[c].next) {
+        if (c == ch) break;
+        prev = c;
+    }
+    if (g_dn[p].first == ch) g_dn[p].first = g_dn[ch].next;
+    else if (prev >= 0) g_dn[prev].next = g_dn[ch].next;
+    if (g_dn[p].last == ch) g_dn[p].last = prev;
+    g_dn[ch].parent = -1;
+    g_dn[ch].next = -1;
+}
+
+/* a, b'nin kendisi veya atasi mi? JS appendChild'u dugumu kendi altina
+ * tasirsa ebeveyn zincirinde dongu olusur, yuruyen taraf sayardi. */
+static int dn_is_ancestor(int a, int b) {
+    int guard = 0;
+    for (int x = b; x >= 0 && guard++ < CSS_NODES; x = g_dn[x].parent)
+        if (x == a) return 1;
+    return 0;
 }
 
 /* HTML varligini cozer: &amp; &nbsp; &#NNN; &#xHH; ... Dondurulen deger
@@ -5097,24 +5130,16 @@ static int wh_set_attr(long long h, const char *name, unsigned nlen, const char 
 }
 static void wh_append(long long par, long long ch) {
     int p = (int)par - 1, c = (int)ch - 1;
-    if (p >= 0 && c >= 0 && p < g_dn_count && c < g_dn_count && p != c) dn_add(p, c);
+    if (p < 0 || c < 0 || p >= g_dn_count || c >= g_dn_count) return;
+    /* dugum kendi alt agacina tasinamaz: ebeveyn zincirinde dongu olur */
+    if (dn_is_ancestor(c, p)) return;
+    dn_unlink(c);
+    dn_add(p, c);
 }
 static void wh_remove(long long h) {
     int n = (int)h - 1;
     if (n < 0 || n >= g_dn_count) return;
-    int p = g_dn[n].parent;
-    if (p >= 0) {
-        int prev = -1;
-        for (int c = g_dn[p].first; c >= 0; c = g_dn[c].next) {
-            if (c == n) break;
-            prev = c;
-        }
-        if (prev < 0) g_dn[p].first = g_dn[n].next;
-        else g_dn[prev].next = g_dn[n].next;
-        if (g_dn[p].last == n) g_dn[p].last = prev;
-    }
-    g_dn[n].parent = -1;
-    g_dn[n].next = -1;
+    dn_unlink(n);
     g_dn[n].widget = 0;
 }
 static void wh_set_style(long long h, const char *prop, unsigned plen, const char *val, unsigned vlen) {
