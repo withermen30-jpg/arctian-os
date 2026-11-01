@@ -386,6 +386,10 @@ void tb_reset_objects(void) {
     s_tb_search_ta = 0;
     s_qs_btn = 0;
     s_tb_group = 0;
+    /* Canvas nesnesi LVGL'in, tamponu bizim; nesne silinirken tampon
+     * serbest kalmiyordu, her tema/olcek rebuild'inde yenisi ayriliyordu. */
+    if (s_bat_buf && g_asi && g_asi->mem && g_asi->mem->free)
+        g_asi->mem->free(s_bat_buf);
     s_bat_canvas = 0;
     s_bat_buf = 0;
     s_bat_w = 0;
