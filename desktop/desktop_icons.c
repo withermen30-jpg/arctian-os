@@ -318,9 +318,24 @@ void menu_close(void) { if (g_context_menu) { lv_obj_delete(g_context_menu); g_c
 void menu_delete_cb(lv_event_t *e) {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
     if (idx >= 0 && idx < g_dicon_count && g_dicons[idx].cell) {
-        lv_obj_delete(g_dicons[idx].cell);
-        g_dicons[idx].cell = 0;
-        g_dicons[idx].selected = 0;
+        dicon_t *d = &g_dicons[idx];
+        if (d->is_file) {
+            /* Dosyanin kendisi de silinir: yalniz widget silinirse simge
+             * sonraki yeniden kurmada depodan yeniden listelenip geri
+             * geliyordu. */
+            if (g_asi && g_asi->fs && g_asi->fs->remove)
+                g_asi->fs->remove(d->name);
+        } else if (d->app && dshort_find(d->app->name) >= 0) {
+            /* Kisayol: kalici listeden cikar; dshort_toggle yeniden
+             * kurmayi da kendisi yapar. Sabit simgeler (Dosya Yoneticisi,
+             * Cop Kovasi) listede degildir; onlar silinemez, ekranda kalir. */
+            dshort_toggle(d->app->name);
+            menu_close();
+            return;
+        }
+        /* Diger durumlarda da tablo yeniden kurulur: tek hucreyi silmek
+         * diger butonlarin user_data indekslerini kaydirirdi. */
+        dicons_rebuild();
     }
     menu_close();
 }
