@@ -110,12 +110,26 @@ static void as_num(char *out, int cap, unsigned v) {
 static void as_log_line(const char *who, const char *txt) {
     if (!g_asi || !g_asi->fs || !g_asi->fs->create_in || !g_asi->fs->write) return;
     if (g_asi->fs->mkdir) g_asi->fs->mkdir("C:/etc");
+    /* AFS'de append yoktur; her write dosyanin TAMAMINI degistirir.
+     * Eskiden burasi ust uste dort write cagirdigi icin asistan.log'da
+     * yalniz "\n" kalirdi. onceki satirlar okunur, yenisi eklenir ve
+     * tek write ile geri yazilir. */
+    static char buf[4096];
+    uint32_t cap = sizeof(buf) - 1, n = 0;
+    if (g_asi->fs->read_path)
+        n = g_asi->fs->read_path("C:/etc/asistan.log", buf, cap - 256);
+    if (n > cap - 256) n = cap - 256;
+    uint32_t need = (uint32_t)slen2(who) + 2 + (uint32_t)slen2(txt) + 1;
+    if (n + need > cap) n = 0;   /* log doldu: yeniden basla, yarim satir birakma */
+    const char *p = who;
+    while (*p && n < cap) buf[n++] = *p++;
+    buf[n++] = ':'; buf[n++] = ' ';
+    p = txt;
+    while (*p && n < cap) buf[n++] = *p++;
+    buf[n++] = '\n';
     void *h = g_asi->fs->create_in("C:/etc", "asistan.log", 0);
     if (!h) return;
-    g_asi->fs->write(h, who, (uint32_t)slen2(who));
-    g_asi->fs->write(h, ": ", 2);
-    g_asi->fs->write(h, txt, (uint32_t)slen2(txt));
-    g_asi->fs->write(h, "\n", 1);
+    g_asi->fs->write(h, buf, n);
 }
 
 /* ---- sohbet balonu ---- */
@@ -325,11 +339,20 @@ static void as_handle(const char *q) {
         while (*c == ' ') c++;
         if (*c) {
             if (g_asi && g_asi->fs && g_asi->fs->mkdir) g_asi->fs->mkdir("C:/belgeler");
+            /* notlar birikerek gitsin: eski icerik + yeni satir TEK write
+             * (ayri write cagrilari AFS'de dosyayi ezip geciyor). */
+            static char nbuf[4096];
+            uint32_t ncap = sizeof(nbuf) - 1, nn = 0;
+            if (g_asi->fs->read_path)
+                nn = g_asi->fs->read_path("C:/belgeler/notlar.txt", nbuf, ncap - 256);
+            if (nn > ncap - 256) nn = ncap - 256;
+            if (nn + (uint32_t)slen2(c) + 1 > ncap) nn = 0;
+            while (*c && nn < ncap) nbuf[nn++] = *c++;
+            nbuf[nn++] = '\n';
             void *h = (g_asi && g_asi->fs && g_asi->fs->create_in)
                       ? g_asi->fs->create_in("C:/belgeler", "notlar.txt", 0) : 0;
             if (h && g_asi->fs->write) {
-                g_asi->fs->write(h, c, (uint32_t)slen2(c));
-                g_asi->fs->write(h, "\n", 1);
+                g_asi->fs->write(h, nbuf, nn);
                 as_reply("Not kaydedildi: C:/belgeler/notlar.txt");
                 return;
             }
