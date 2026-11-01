@@ -18,6 +18,7 @@
 static lv_obj_t *s_list;
 static lv_obj_t *s_input;
 static lv_obj_t *s_win;
+static lv_group_t *s_group;
 
 static lv_obj_t *as_label(lv_obj_t *p, const char *txt, uint32_t col)
 {
@@ -120,6 +121,13 @@ static void win_del_cb(lv_event_t *e)
 {
     (void)e;
     assistant_set_sink(0);      /* panel yeniden varsayilan hedefe yazar */
+    /* klavye grubu acilisda yaratiliyordu ama hic silinmiyordu */
+    if (s_group) {
+        lv_indev_t *kp = lv_port_get_keypad();
+        if (kp && lv_indev_get_group(kp) == s_group) lv_indev_set_group(kp, 0);
+        lv_group_delete(s_group);
+        s_group = 0;
+    }
     s_list = s_input = s_win = 0;
 }
 
@@ -188,6 +196,7 @@ void app_entry(lv_obj_t *win, asi_t *asi)
     lv_obj_add_event_cb(s_input, send_cb, LV_EVENT_READY, 0);
 
     lv_group_t *g = lv_group_create();
+    s_group = g;
     lv_group_add_obj(g, s_input);
     lv_group_focus_obj(s_input);
     lv_indev_t *kp = lv_port_get_keypad();
