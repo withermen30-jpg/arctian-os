@@ -2474,16 +2474,22 @@ static void sh_hist_add(const char *cmd) {
 static void sh_hist_save(void) {
     if (!g_asi || !g_asi->fs || !g_asi->fs->create_in || !g_asi->fs->write) return;
     if (g_asi->fs->mkdir) g_asi->fs->mkdir("C:/etc");
-    void *h = g_asi->fs->create_in("C:/etc", "term_hist.cfg", 0);
-    if (!h) return;
+    /* tek tampon, tek write: AFS'de append yok, ust uste write cagrisi
+     * dosyada yalniz son satiri birakirdi (gecmis kaybi). */
+    static char buf[8192];
+    uint32_t n = 0, cap = sizeof(buf) - 1;
     int start = g_hist_n > SH_HIST_MAX ? g_hist_n - SH_HIST_MAX : 0;
     for (int i = start; i < g_hist_n; i++) {
         const char *c = g_hist[i % SH_HIST_MAX];
         uint32_t l = 0;
         while (c[l]) l++;
-        g_asi->fs->write(h, c, l);
-        g_asi->fs->write(h, "\n", 1);
+        if (l + 1 > cap - n) break;
+        for (uint32_t k = 0; k < l; k++) buf[n++] = c[k];
+        buf[n++] = '\n';
     }
+    void *h = g_asi->fs->create_in("C:/etc", "term_hist.cfg", 0);
+    if (!h) return;
+    g_asi->fs->write(h, buf, n);
 }
 
 static void sh_hist_load(void) {
