@@ -246,15 +246,16 @@ void wlf_apply_package(dyn_app_t *d, const uint8_t *buf, uint32_t size,
     bin_copy(d->entry_name, sizeof(d->entry_name), m.entry);
     d->terminal = (m.flags & WLF_META_TERMINAL) ? 1 : 0;
 
-    /* Izinler: .wlf bayraklari -> CAP_* */
-    uint32_t p = CAP_ALL;
-    if (h->flags != 0) {
-        p = 0;
-        if (h->flags & WLF_FLAG_FS)   p |= CAP_FS;
-        if (h->flags & WLF_FLAG_NET)  p |= CAP_NET;
-        if (h->flags & WLF_FLAG_EXEC) p |= CAP_DEV;   /* calistirma/uygulama acma */
-        if (p == 0) p = CAP_FS;   /* en azindan kendi verisi */
-    }
+    /* Izinler: .wlf bayraklari -> CAP_*. Fail-closed: yetki her zaman
+     * bayraklardan turertilir; manifest'in caps alani yalniz UI susudur.
+     * Eskiden flags==0 paket CAP_ALL aliyordu, yani "bayragsiz" demek
+     * "tum yetkiler" demekti; paket sahibinin unutmasi buyuk yetki veriyordu.
+     * flags==0 artik en gerilemeli varsayilanla (yalniz kendi verisi) calisir. */
+    uint32_t p = 0;
+    if (h->flags & WLF_FLAG_FS)   p |= CAP_FS;
+    if (h->flags & WLF_FLAG_NET)  p |= CAP_NET;
+    if (h->flags & WLF_FLAG_EXEC) p |= CAP_DEV;   /* calistirma/uygulama acma */
+    if (p == 0) p = CAP_FS;   /* en azindan kendi verisi */
     d->perms = p;
     if (h->icon_len) {
         const uint8_t *icon = buf + wlf_icon_off(buf, size);
