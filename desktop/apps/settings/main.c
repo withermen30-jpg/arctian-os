@@ -402,7 +402,13 @@ static void sfw_read(lv_obj_t *ta, char *out, int cap) {
 static int sfw_num(const char *s, int *out) {
     if (!s || !*s) { *out = 0; return 0; }
     int v = 0, any = 0;
-    while (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); s++; any = 1; }
+    while (*s >= '0' && *s <= '9') {
+        /* On iki haneli giris int'i tasirirdi; birikim port sinirinin
+         * hemen uzerinde doyuruluyor, sonraki kirpma dogru sonuc veriyor. */
+        if (v < 1000000) v = v * 10 + (*s - '0');
+        if (v > 65535) v = 65536;
+        s++; any = 1;
+    }
     *out = v;
     return any;
 }
