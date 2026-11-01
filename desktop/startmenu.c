@@ -604,12 +604,14 @@ void build_start_menu(lv_obj_t *scr) {
     lv_obj_center(hi);
     lv_obj_add_event_cb(hp, help_btn_cb, LV_EVENT_CLICKED, 0);
 
-    /* Asistan dugmesi — baslat menusunun sag alt kosesinde      */
+    /* Asistan dugmesi — sag alttaki dugme sirasinin en solu. Eskiden
+     * x = mw-118 ile aynasinda duran ayarlar dislisinin (mw-116) tam
+     * uzerine biniyor, disli fareyle basilamiyordu. */
     lv_obj_t *ap = lv_button_create(g_start_menu);
     lv_obj_set_size(ap, ui_s(42), ui_s(42));
     lv_obj_set_style_radius(ap, ui_s(12), 0);
     lv_obj_set_style_bg_color(ap, lv_color_hex(ADL_ACCENT), 0);
-    lv_obj_set_pos(ap, mw - ui_s(118), mh - ui_s(56));
+    lv_obj_set_pos(ap, mw - ui_s(216), mh - ui_s(56));
     lv_obj_t *ail = label(ap, "AI", 0xFFFFFF);
     lv_obj_center(ail);
     lv_obj_add_event_cb(ap, assistant_btn_cb, LV_EVENT_CLICKED, 0);
