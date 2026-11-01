@@ -181,6 +181,11 @@ int consent_ask(int type, const char *src) {
     /* Oz-test / otomatik mod: pencere cizilmez. */
     if (s_hook) return s_hook(type, src);
 
+    /* Bekleme dongusu olaylari islerken ikinci bir soru sorulursa eski
+     * diyaloğun üstüne yenisi biner, karar iki soru arasinda karisirdi.
+     * Ic ice soruyu basindan reddediyoruz (fail-closed). */
+    if (s_open) return PERM_DENY;
+
     s_answer = -1;
     if (!consent_show(type, src)) return PERM_DENY;
     int v = consent_pump();
