@@ -303,14 +303,14 @@ void keyboard_process_usb_queue(void) {
                 case 0x1D: ctrl_pressed = false; break;
                 case 0x38: alt_pressed = false; break;
             }
-            return;
+            continue;   /* eskiden return'du; kuyrukta kalan tusler dusuyordu */
         }
 
         switch (scancode) {
-            case 0x2A: case 0x36: shift_pressed = true; return;
-            case 0x1D: ctrl_pressed = true; return;
-            case 0x38: alt_pressed = true; return;
-            case 0x3A: caps_lock = !caps_lock; return;
+            case 0x2A: case 0x36: shift_pressed = true;  continue;
+            case 0x1D: ctrl_pressed = true;  continue;
+            case 0x38: alt_pressed = true;   continue;
+            case 0x3A: caps_lock = !caps_lock; continue;
         }
 
         if (scancode < 128) {
@@ -513,14 +513,22 @@ void keyboard_init(void) {
     // Config bytei oku (controller'in veriyi hazirlamasini bekle)
     outb(KEYBOARD_COMMAND_PORT, KEYBOARD_CMD_READ_CONFIG);
     uint8_t config = 0;
-    if (ps2_wait_buffer()) config = inb(KEYBOARD_DATA_PORT);
+    int config_ok = ps2_wait_buffer();
+    if (config_ok) config = inb(KEYBOARD_DATA_PORT);
 
-    // Sadece klavye kesmesi (bit0) acik; bit1 (IRQ12/fare) aynen korunur
-    config |= 0x01;
+    /* Okuma zaman asimina ugradiginda config 0 kalir; 0|0x01 yazmak
+     * controller'in gercek ayarlarini (cevirme, IRQ12) silerdi. Okunamadiysa
+     * hic yazmiyoruz; mevcut ayar zaten calisir haldedir. */
+    if (config_ok) {
+        // Sadece klavye kesmesi (bit0) acik; bit1 (IRQ12/fare) aynen korunur
+        config |= 0x01;
 
-    // Config bytei yaz
-    outb(KEYBOARD_COMMAND_PORT, KEYBOARD_CMD_WRITE_CONFIG);
-    outb(KEYBOARD_DATA_PORT, config);
+        // Config bytei yaz
+        outb(KEYBOARD_COMMAND_PORT, KEYBOARD_CMD_WRITE_CONFIG);
+        outb(KEYBOARD_DATA_PORT, config);
+    } else {
+        kernel_debug("Klavye config bytei okunamadi; mevcut ayar korundu");
+    }
 
     // Klavye controlleri enable et
     outb(KEYBOARD_COMMAND_PORT, KEYBOARD_CMD_ENABLE);
