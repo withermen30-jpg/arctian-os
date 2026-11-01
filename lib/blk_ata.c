@@ -162,11 +162,26 @@ static int ata_dma(void *ctx, uint64_t lba, uint32_t count, void *buf, int write
     return 0;
 }
 
+/* Aygit yazilim reset'i (SRST): DMA takilip birakildiginda surucu hala
+ * eski komutunu isliyor olabilir; dogrudan PIO'ya dusmek o komutun atik
+ * verisini "okundu" sayardi. Once DMA motoru durdurulur, sonra SRST. */
+static void ata_reset(ata_ctx_t *c) {
+    if (c->bm) {
+        outb(c->bm + BM_CMD, 0x00);
+        outb(c->bm + BM_STATUS, 0x06);
+    }
+    outb(c->io + 0x206, 0x04);              /* SRST bitini bas */
+    for (volatile int i = 0; i < 4000; i++) {}
+    outb(c->io + 0x206, 0x00);              /* birak */
+    (void)wait(c->io, 0);
+}
+
 static int ata_read(void *ctx, uint64_t lba, uint32_t count, void *buf) {
     ata_ctx_t *c = (ata_ctx_t *)ctx;
     if (c->dma && s_dma_on) {
         if (ata_dma(ctx, lba, count, buf, 0) == 0) return 0;
         c->dma = 0;
+        ata_reset(c);
     }
     return ata_pio(ctx, lba, count, buf, 0);
 }
@@ -175,6 +190,7 @@ static int ata_write(void *ctx, uint64_t lba, uint32_t count, const void *buf) {
     if (c->dma && s_dma_on) {
         if (ata_dma(ctx, lba, count, (void *)buf, 1) == 0) return 0;
         c->dma = 0;
+        ata_reset(c);
     }
     return ata_pio(ctx, lba, count, (void *)buf, 1);
 }
