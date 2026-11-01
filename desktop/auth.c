@@ -246,21 +246,40 @@ static void auth_store(void) {
     fs_write(AUTH_PATH, out, (uint32_t)o);
 }
 
+/* Salt eskiden yalniz saat degerinden uretiliyordu; hesap olusturma anini
+ * bilen salt'i aynen hesaplayabilir. Donanim uretebiliyorsa RDRAND kullanilir,
+ * uretilemiyorsa saat + tik + yigin adresi birlikte karistirilir. */
+static uint64_t auth_rdrand(void) {
+    uint64_t v = 0;
+    unsigned char ok = 0;
+    __asm__ volatile("rdrand %0; setc %1" : "=r"(v), "=qm"(ok));
+    return ok ? v : 0;
+}
+
 static void new_salt(uint8_t out[8]) {
+    uint64_t seed = 0x9e3779b97f4a7c15ull;
     asi_datetime_t dt;
-    uint32_t seed = 0x9e3779b9u;
     if (g_asi && g_asi->time && g_asi->time->now && g_asi->time->now(&dt)) {
-        seed ^= (uint32_t)dt.year * 1000003u;
-        seed ^= (uint32_t)dt.month << 24;
-        seed ^= (uint32_t)dt.day << 16;
-        seed ^= (uint32_t)dt.hour << 8;
-        seed ^= (uint32_t)dt.minute;
-        seed ^= (uint32_t)dt.second * 2654435761u;
+        seed ^= (uint64_t)dt.year * 1000003ull;
+        seed ^= (uint64_t)dt.month << 24;
+        seed ^= (uint64_t)dt.day << 16;
+        seed ^= (uint64_t)dt.hour << 8;
+        seed ^= (uint64_t)dt.minute;
+        seed ^= (uint64_t)dt.second * 2654435761ull;
     }
-    seed ^= (uint32_t)(uintptr_t)&dt;
-    for (int i = 0; i < 8; i++) {
-        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
-        out[i] = (uint8_t)(seed >> 24);
+    if (g_asi && g_asi->time && g_asi->time->ticks_ms)
+        seed ^= g_asi->time->ticks_ms() * 0xff51afd7ed558ccdull;
+    uint64_t tsc = 0;
+    __asm__ volatile("rdtsc" : "=A"(tsc));
+    seed ^= tsc;
+    seed ^= (uint64_t)(uintptr_t)&dt;
+    for (int i = 0; i < 4; i++) {
+        uint64_t r = auth_rdrand();
+        if (r) seed ^= r;
+        for (int b = 0; b < 2; b++) {
+            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+            *out++ = (uint8_t)(seed >> 24);
+        }
     }
 }
 
