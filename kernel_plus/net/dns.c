@@ -62,6 +62,7 @@ static int dns_decode_name(const uint8_t *buf, int offset, int max_len,
     int pos = offset;
     bool jumped = false;
     int jump_pos = 0;
+    int jumps = 0;
 
     while (pos < max_len && opos < out_max) {
         uint8_t len = buf[pos];
@@ -71,8 +72,13 @@ static int dns_decode_name(const uint8_t *buf, int offset, int max_len,
             return jump_pos - offset;
         }
         if ((len & 0xC0) == 0xC0) {
+            if (pos + 1 >= max_len) return -1;
             if (!jumped) jump_pos = pos + 2;
             jumped = true;
+            /* A->B->A gibi zincirlenen isaretciler dongu kurabilir;
+             * yasal cevaplar en fazla bir kac siralama isaretcisi icerir,
+             * sayac dolunca cevabi bozuk sayip birakiyoruz. */
+            if (++jumps > 8) return -1;
             pos = ((len & 0x3F) << 8) | buf[pos + 1];
             continue;
         }
