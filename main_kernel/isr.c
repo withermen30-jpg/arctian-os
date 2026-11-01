@@ -20,6 +20,10 @@ static void serial_hex(uint64_t v) {
 // Registered IRQ handler table (IRQ 0-15)
 static irq_handler_t irq_handlers[16] = { NULL };
 
+/* Halen islenmekte olan IRQ (yoksa -1). Exception -> recover-longjmp yolu
+ * EOI'yu atladigi icin hangi hatti temizlememiz gerektigini buradan biliyoruz. */
+static volatile int s_in_irq = -1;
+
 // Cokme koruma: masaustunun kaydettigi kurtarma noktasi ve zaman asimi denetimi
 arctian_recover_t *g_arctian_recover = NULL;
 static arctian_recover_tick_fn s_recover_tick = NULL;
@@ -173,6 +177,14 @@ void isr_handler(registers_t *regs) {
         }
 
         if (g_arctian_recover && g_arctian_recover->active) {
+            /* longjmp IRQ islenirken alinmis bir exception'dan yapiliyorsa
+             * asagidaki pic_send_eoi'ya hic ulasilamaz; PIC'in ISR biti
+             * takilir ve o hat (IRQ8 ustu ise tum slave PIC) kalici susar.
+             * EOI'yu burada kendimiz gonderiyoruz. */
+            if (s_in_irq >= 0) {
+                pic_send_eoi(s_in_irq);
+                s_in_irq = -1;
+            }
             uint64_t cr2 = 0;
             if (int_no == 14) asm volatile("mov %%cr2, %0" : "=r"(cr2));
             rc_reason(g_arctian_recover, int_no, regs->rip, cr2);
@@ -189,10 +201,16 @@ void isr_handler(registers_t *regs) {
     // IRQ (32-47): remap to IRQ 0-15
     int irq = int_no - 32;
 
+    /* Islenen IRQ'yu kaydet: exception sirasinda yapilan recover-longjmp'u
+     * EOI'yu atlayacagi icin onu exception yolunda gonderebilmeliyiz. */
+    int prev_irq = s_in_irq;
+    s_in_irq = irq;
+
     // Call registered handler
     if (irq >= 0 && irq < 16 && irq_handlers[irq] != NULL) {
         irq_handlers[irq]();
     }
+    s_in_irq = prev_irq;
 
     // Send EOI to PIC
     pic_send_eoi(irq);
