@@ -37,7 +37,38 @@ uint64_t clock_uptime_ms(void) {
     return s_ticks_ms;
 }
 
+/* Kesmeler kapaliyken hlt uyandirilamaz: PIT kesti gelmez, surucu init
+ * yollarindaki uyku sonsuza kadar surerdi. Bu durumda sayac okunarak
+ * yaklasik gercek zaman bekleme yapilir. */
+static int irqs_enabled(void) {
+    uint64_t f;
+    __asm__ volatile("pushfq; popq %0" : "=r"(f));
+    return (f & 0x200u) != 0;
+}
+
+static void clock_busy_ms(uint32_t ms) {
+    const uint32_t div = PIT_INPUT_HZ / PIT_TICK_HZ;   /* 1 ms'deki PIT sayimi */
+    uint64_t need = (uint64_t)ms * div;
+    uint64_t acc = 0, stuck = 0;
+    uint32_t prev = 0;
+    while (acc < need) {
+        outb(PIT_CMD, 0x00);                            /* kanali kilitle */
+        uint32_t cur = inb(PIT_CH0_DATA) | (inb(PIT_CH0_DATA) << 8);
+        if (prev) {
+            /* Sayac geriye dogru sayar; yukari atirma = sayacin bosalmasi.
+             * Yeniden yuklenme miktarini bilmedigimiz icin eksik sayariz,
+             * yani bekleme uzar ama kisa dusmez. */
+            uint32_t d = (cur <= prev) ? (prev - cur) : prev;
+            if (d) { acc += d; stuck = 0; }
+            else if (++stuck > 4000000ull) break;      /* sayac calismiyor */
+        }
+        prev = cur;
+        __asm__ volatile("pause");
+    }
+}
+
 void clock_sleep_ms(uint32_t ms) {
+    if (!irqs_enabled()) { clock_busy_ms(ms); return; }
     uint64_t target = s_ticks_ms + (uint64_t)ms;
     while (s_ticks_ms < target) asm volatile("hlt");
 }
