@@ -699,7 +699,7 @@ static void cmd_mv(const char *args) {
     }
 
     static uint8_t *buf;
-    const uint32_t cap = 512u * 1024u;
+    static uint32_t buf_cap;
 
     /* Yerel rename varsa once onu dene: veri kopyalanmaz, buyuk dosyada da
      * aninda biter (0.6). */
@@ -708,10 +708,21 @@ static void cmd_mv(const char *args) {
         return;
     }
 
-    if (!buf) buf = (uint8_t *)g_asi->mem->alloc(cap);
+    /* Kopyala-sil yoluna dusmeden once boyutu ogren: 512 KB ustü dosyayi
+     * kirpik kopyalayıp kaynagi silmek veri kaybiydi (cp'deki denetim
+     * mv'de yoktu). Ayrica olmayan kaynak "Tasindi" mesajı üretebiliyordu. */
+    asi_stat_t st;
+    if (!fs->stat || fs->stat(sp, &st) != 0) { term_puts("Kaynak bulunamadi\n"); return; }
+    if (st.is_dir) { term_puts("Farkli volume'e dizin tasiyamam\n"); return; }
+    uint32_t sz = st.size;
+    uint32_t need = sz ? sz : 1;
+    if (buf_cap < need) {
+        if (buf) { g_asi->mem->free(buf); buf = 0; buf_cap = 0; }
+        buf = (uint8_t *)g_asi->mem->alloc(need);
+        if (buf) buf_cap = need;
+    }
     if (!buf) { term_puts("Bellek yetersiz\n"); return; }
-    uint32_t sz = fs->read_path(sp, buf, cap);
-    if (sz == 0 && !fs->find_in && !fs->find) { term_puts("Kaynak okunamadi\n"); return; }
+    if (sz && fs->read_path(sp, buf, buf_cap) != sz) { term_puts("Kaynak okunamadi\n"); return; }
 
     /* hedef klasor (varsa) */
     char dir[176];
@@ -724,7 +735,7 @@ static void cmd_mv(const char *args) {
 
     void *h = fs->create_in(last >= 0 ? dir : "C:/", fname, 0);
     if (!h) { term_puts("Hedef olusturulamadi\n"); return; }
-    fs->write(h, buf, sz);
+    if (sz && fs->write(h, buf, sz) != 0) { term_puts("Yazma hatasi; kaynak silinmedi\n"); return; }
     fs->remove(sp);
     term_puts("Tasindi: "); term_puts(sp); term_puts(" -> "); term_puts(dp); term_putc('\n');
 }
