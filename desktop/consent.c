@@ -182,7 +182,7 @@ int consent_ask(int type, const char *src) {
     if (s_hook) return s_hook(type, src);
 
     /* Bekleme dongusu olaylari islerken ikinci bir soru sorulursa eski
-     * diyaloğun üstüne yenisi biner, karar iki soru arasinda karisirdi.
+     * diyalogun ustune yenisi biner, karar iki soru arasinda karisirdi.
      * Ic ice soruyu basindan reddediyoruz (fail-closed). */
     if (s_open) return PERM_DENY;
 
