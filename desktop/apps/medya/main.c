@@ -152,7 +152,8 @@ static void play_path(int i) {
     player_stop();
 
     asi_stat_t st;
-    if (A->fs->stat(g_path[i], &st) != 0 || st.is_dir || st.size == 0) {
+    if (!A->fs || !A->fs->stat ||
+        A->fs->stat(g_path[i], &st) != 0 || st.is_dir || st.size == 0) {
         set_status("Dosya okunamadi");
         return;
     }
