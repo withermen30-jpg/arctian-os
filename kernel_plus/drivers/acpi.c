@@ -166,27 +166,33 @@ void acpi_init(void) {
 
     const uint8_t *fadt = sdt_find(sdt, "FACP");
     if (!fadt) return;
-    const uint8_t *fend = fadt + rd32(fadt + 4);
-    if (fend < fadt + 0x40) return;
+    uint32_t flen = rd32(fadt + 4);
+    if (flen < 0x40 || flen > (16u << 20)) return;
 
+    /* Tarla okumalari tablo uzunluguna karsi teker teker denetlenir:
+     * kisa FADT gonderen makinelerde (erken ACPI 1.0) 0x40 sonrasindaki
+     * alanlar yoktur; eskiden flags (=0x74) okunurken tablonun bitisindan
+     * aliniyordu. Yanlis deger, yanlis SLP_TYP demek; sessizce olmasin. */
     for (int i = 0; i < 6; i++) g_acpi.oem_id[i] = (char)fadt[0x0A + i];
     g_acpi.oem_id[6] = 0;
     g_acpi.present = 1;
-    g_acpi.sci_int = fadt[0x2E];
-    g_acpi.smi_cmd = (uint16_t)rd32(fadt + 0x30);
-    g_acpi.acpi_enable = fadt[0x34];
-    g_acpi.acpi_disable = fadt[0x35];
-    g_acpi.pm1a_evt = (uint16_t)rd32(fadt + 0x38);
-    g_acpi.pm1a_cnt = (uint16_t)rd32(fadt + 0x40);
-    g_acpi.pm1b_cnt = (uint16_t)rd32(fadt + 0x44);
-    g_acpi.pm1_cnt_len = fadt[0x59];
-    g_acpi.flags = rd32(fadt + 0x74);
-    g_acpi.century = fadt[0x6C];
+    if (flen >= 0x2Fu) g_acpi.sci_int = fadt[0x2E];
+    if (flen >= 0x36u) {
+        g_acpi.smi_cmd = (uint16_t)rd32(fadt + 0x30);
+        g_acpi.acpi_enable = fadt[0x34];
+        g_acpi.acpi_disable = fadt[0x35];
+    }
+    if (flen >= 0x3Cu) g_acpi.pm1a_evt = (uint16_t)rd32(fadt + 0x38);
+    if (flen >= 0x44u) g_acpi.pm1a_cnt = (uint16_t)rd32(fadt + 0x40);
+    if (flen >= 0x48u) g_acpi.pm1b_cnt = (uint16_t)rd32(fadt + 0x44);
+    if (flen >= 0x5Au) g_acpi.pm1_cnt_len = fadt[0x59];
+    if (flen >= 0x78u) g_acpi.flags = rd32(fadt + 0x74);
+    if (flen >= 0x6Du) g_acpi.century = fadt[0x6C];
 
     /* DSDT: ACPI 2.0+ X_DSDT (GAS) tercih edilir. */
-    uint32_t dsdt32 = rd32(fadt + 0x28);
+    uint32_t dsdt32 = (flen >= 0x2Cu) ? rd32(fadt + 0x28) : 0;
     const uint8_t *dsdt = dsdt32 ? acpi_ensure(dsdt32, 0x1000) : 0;
-    if (rd32(fadt + 4) >= 0x94) {
+    if (flen >= 0x94u) {
         uint64_t xd = rd64(fadt + 0x90);
         if (xd && xd <= 0xFFFFFFFFull) dsdt = acpi_ensure(xd, 0x1000);
     }
