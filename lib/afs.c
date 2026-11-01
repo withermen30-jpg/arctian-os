@@ -392,6 +392,9 @@ static int find_idx(const char *name) {
 
 void *afs_create_handle(const char *name) {
     if (!mounted) afs_mount();
+    /* Ad sigmiyorsa kirpik adla dosya uretme; iki farkli dosya ayni
+     * kirpiga dusup birbirinin uzerine yazilabiliyordu. */
+    if (!name || !name[0] || slen(name) >= (int)AFS_NAME_MAX) return 0;
     /* Tek gecis: ad arayisi ve bos slot bulma ayni taramada yapilir.
      * Eskiden tablo (512 girise kadar) iki kez dolasiyordu. */
     int first_free = -1;
@@ -438,6 +441,9 @@ int afs_rename(const char *from, const char *to) {
     /* Klasorler depoda "/" ile biten adla durur: "C:/a" -> "C:/a/".
      * Cagiran taraf sonda egik cizgi vermeyebilir; iki bicimi de dene (0.6). */
     char fbuf[AFS_NAME_MAX], tbuf[AFS_NAME_MAX];
+    /* Uzunluk denetimi kopyalamadan once: cpy kirpiyordu, sonra yapilan
+     * "uzun mu?" kontrolu kirpik degere baktigi icin hic tutulmuyordu. */
+    if (slen(from) >= (int)AFS_NAME_MAX || slen(to) >= (int)AFS_NAME_MAX) return -3;
     cpy(fbuf, from);
     cpy(tbuf, to);
     int fi = find_idx(fbuf);
@@ -471,6 +477,9 @@ int afs_rename(const char *from, const char *to) {
             if ((int)j == fi || !H.files[j].used) continue;
             if (!prefix_of(H.files[j].name, fbuf)) continue;
             char nb[AFS_NAME_MAX];
+            /* Yeni ad tasacaksa bu alt ogreyi oldugu birakmak, yarim
+             * (kirpik) adla kaydetmekten guvenlidir. */
+            if (slen(tbuf) + slen(H.files[j].name) - fl >= (int)AFS_NAME_MAX) continue;
             int n = 0;
             for (int k = 0; tbuf[k] && n < (int)AFS_NAME_MAX - 1; k++) nb[n++] = tbuf[k];
             for (int k = fl; H.files[j].name[k] && n < (int)AFS_NAME_MAX - 1; k++)
