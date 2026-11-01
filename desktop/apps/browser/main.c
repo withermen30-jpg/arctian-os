@@ -5443,13 +5443,20 @@ static int bm_load(void) {
 static void bm_save(void) {
     if (!g_basi || !g_basi->fs || !g_basi->fs->create_in || !g_basi->fs->write) return;
     if (g_basi->fs->mkdir) g_basi->fs->mkdir("C:/etc");
-    void *h = g_basi->fs->create_in("C:/etc", "yerimleri.cfg", 0);
-    if (!h) return;
+    /* Tek tampon, tek write: AFS'de append yoktur, ust uste write
+     * cagrilari dosyada son parcayi birakirdi (yerimleri kaybi). */
+    static char buf[BM_MAX * (BM_URLLEN + 2)];
+    uint32_t n = 0, cap = sizeof(buf) - 1;
     for (int i = 0; i < s_bm_n; i++) {
         uint32_t l = (uint32_t)b_len(s_bm[i]);
-        if (l) g_basi->fs->write(h, s_bm[i], l);
-        g_basi->fs->write(h, "\n", 1);
+        if (l == 0) continue;
+        if (l + 1 > cap - n) break;
+        for (uint32_t k = 0; k < l; k++) buf[n++] = s_bm[i][k];
+        buf[n++] = '\n';
     }
+    void *h = g_basi->fs->create_in("C:/etc", "yerimleri.cfg", 0);
+    if (!h) return;
+    g_basi->fs->write(h, buf, n);
 }
 
 static int bm_find(const char *url) {
@@ -5462,24 +5469,34 @@ static int bm_find(const char *url) {
 static void dl_log(const char *name, uint32_t size, const char *url) {
     if (!g_basi || !g_basi->fs || !g_basi->fs->create_in || !g_basi->fs->write) return;
     if (g_basi->fs->mkdir) g_basi->fs->mkdir("C:/etc");
-    void *h = g_basi->fs->create_in("C:/etc", "indirmeler.log", 0);
-    if (!h) return;
-    char b[64];
+    /* satir hazirla, eski logu oku, tek write ile yaz
+     * (ard arda write cagrilari AFS'de dosyayi ezip geciyordu). */
+    char line[512];
     int n = 0;
     const char *p = name ? name : "?";
-    while (*p && n < 40) b[n++] = *p++;
-    b[n++] = '\t';
+    while (*p && n < 40) line[n++] = *p++;
+    line[n++] = '\t';
     uint32_t v = size;
     char tmp[12]; int k = 0;
     if (!v) tmp[k++] = '0';
     while (v && k < 12) { tmp[k++] = (char)('0' + v % 10); v /= 10; }
-    while (k) b[n++] = tmp[--k];
-    b[n++] = '\t';
-    b[n] = 0;
-    g_basi->fs->write(h, b, (uint32_t)n);
-    const char *u = url ? url : "";
-    g_basi->fs->write(h, u, (uint32_t)b_len(u));
-    g_basi->fs->write(h, "\n", 1);
+    while (k) line[n++] = tmp[--k];
+    line[n++] = '\t';
+    p = url ? url : "";
+    while (*p && n < 500) line[n++] = *p++;
+    if (n < 511) line[n++] = '\n';
+
+    static char buf[4096];
+    uint32_t cap = sizeof(buf) - 1, bn = 0;
+    if (g_basi->fs->read_path)
+        bn = g_basi->fs->read_path("C:/etc/indirmeler.log", buf, cap - 512);
+    if (bn > cap - 512) bn = cap - 512;
+    if (bn + (uint32_t)n > cap) bn = 0;   /* log doldu: bastan basla */
+    for (int i = 0; i < n; i++) buf[bn++] = line[i];
+
+    void *h = g_basi->fs->create_in("C:/etc", "indirmeler.log", 0);
+    if (!h) return;
+    g_basi->fs->write(h, buf, bn);
 }
 
 static void panel_close(void) {
