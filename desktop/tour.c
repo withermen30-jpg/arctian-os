@@ -5,6 +5,11 @@ static lv_obj_t *s_num;
 static lv_obj_t *s_title;
 static lv_obj_t *s_body;
 static int s_idx;
+/* Tur ve yardim panelleri ekranin cocugudur; kabuk yeniden kurulunca
+ * (cozunurluk/tema/olcek) onlarla birlikte yok olurlar. Nesil sayaci o
+ * ani yakalar: bayat isaretciler unutulur, silinmis nesneye dokunulmaz. */
+static int s_gen;
+static int s_hgen;
 
 static const char *T_T[4] = {
     "Masaustune hos geldiniz",
@@ -20,7 +25,16 @@ static const char *T_B[4] = {
     "Dosya Yoneticisi ile C: ve D: (USB) gezinin; Ctrl+C / Ctrl+V ile kopyalayin."
 };
 
+/* Kabuk yeniden kurulmussa bu nesneler artik ekranda degil; adresleri ne
+ * kadar gosterisse o kadar varsay, hicbirine dokunmadan unutuyoruz. */
+static void tour_sync_gen(void) {
+    if (s_gen == g_shell_gen) return;
+    s_root = 0; s_num = 0; s_title = 0; s_body = 0;
+    s_gen = g_shell_gen;
+}
+
 static void tour_close(void) {
+    tour_sync_gen();
     if (s_root) { lv_obj_delete(s_root); s_root = 0; }
     kv_set("tour_done", "1");
 }
@@ -45,6 +59,7 @@ static void tour_skip_cb(lv_event_t *e) {
 }
 
 void tour_show(void) {
+    tour_sync_gen();
     if (s_root) return;
 
     int sw = g_asi->gfx->width();
@@ -124,6 +139,12 @@ void tour_show(void) {
 
 static lv_obj_t *h_root;
 
+static void help_sync_gen(void) {
+    if (s_hgen == g_shell_gen) return;
+    h_root = 0;
+    s_hgen = g_shell_gen;
+}
+
 static const char *H_KEYS =
     "Klavye kısayolları\n"
     "  Alt+Tab           pencereler arası geçiş\n"
@@ -144,6 +165,7 @@ static const char *H_TASKS =
     "  Pencere yarıya: başlığı ekran kenarına sürükle";
 
 void help_close(void) {
+    help_sync_gen();
     if (h_root) { lv_obj_delete(h_root); h_root = 0; }
 }
 
@@ -153,6 +175,7 @@ static void help_close_cb(lv_event_t *e) {
 }
 
 void help_toggle(void) {
+    help_sync_gen();
     if (h_root) { help_close(); return; }
 
     h_root = lv_obj_create(lv_screen_active());
