@@ -72,7 +72,8 @@ int mmio_map(uint64_t phys, uint64_t size) {
         if (seg_end > end) seg_end = end;
         for (uint64_t b = a; b < seg_end; b += 0x200000ULL) {
             int pd_i = (int)((b >> 21) & 0x1FF);
-            pd[pd_i] = b | 0x83ULL;
+            /* PCD: aygit belleci cache'lenmemeli (kapi zilleri/BAR). */
+            pd[pd_i] = b | 0x93ULL;
         }
     }
 

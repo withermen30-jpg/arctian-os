@@ -258,7 +258,11 @@ void blk_mmio_map(uint64_t phys, uint64_t size) {
         uint64_t seg_end = a + 0x40000000ULL;
         if (seg_end > end) seg_end = end;
         for (uint64_t b = a; b < seg_end; b += 0x200000ULL)
-            pd[(b >> 21) & 0x1FF] = b | 0x83ULL;
+            /* PCD (bit 4) = cache'lenmez. Aygit kapi zilleri (NVMe/AHCI)
+             * cache'lenebilir birim olarak eslenirse islemci yazmayi
+             * tamponda tutup aygita gec iletebilir; gercek donanimda
+             * komut kuyrugu ile tampon kayisir. 0x83 + 0x10 (PCD). */
+            pd[(b >> 21) & 0x1FF] = b | 0x93ULL;
     }
     __asm__ volatile ("mov %0, %%cr3" :: "r"(cr3));
 }
