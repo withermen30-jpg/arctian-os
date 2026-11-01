@@ -171,8 +171,14 @@ void tb_app_cb(lv_event_t *e) {
 
 
 void dyn_win_del_cb(lv_event_t *e) {
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    /* user_data'da indeks degil id duruyor: aradan bir uygulama
+     * kaldirildiginda g_dyn kayar, eski indeks baska bir uygulamaya
+     * denk gelip onun "acik" bayragini temizleyebilirdi. */
+    char *cid = (char *)lv_event_get_user_data(e);
+    if (!cid) return;
+    int idx = dyn_find(cid);
     if (idx >= 0) arctian_dyn_mark_closed(idx);
+    if (g_asi && g_asi->mem && g_asi->mem->free) g_asi->mem->free(cid);
 }
 
 
@@ -206,8 +212,19 @@ void run_app_done(lv_timer_t *t) {
     if (c->idx >= arctian_app_count) {
         arctian_dyn_begin_launch(c->idx - arctian_app_count);
         g_crash_dyn = c->idx - arctian_app_count;
-        lv_obj_add_event_cb(win, dyn_win_del_cb, LV_EVENT_DELETE,
-                            (void *)(intptr_t)(c->idx - arctian_app_count));
+        /* id kopyasini sakla; indeks kayabilir (bkz. dyn_win_del_cb) */
+        char *cid = 0;
+        int d = c->idx - arctian_app_count;
+        if (d >= 0 && d < g_dyn_count && g_asi && g_asi->mem && g_asi->mem->alloc) {
+            cid = (char *)g_asi->mem->alloc(DPK_ID_LEN);
+            if (cid) {
+                const char *p = g_dyn[d].id;
+                int n = 0;
+                for (; n < DPK_ID_LEN - 1 && p[n]; n++) cid[n] = p[n];
+                cid[n] = 0;
+            }
+        }
+        lv_obj_add_event_cb(win, dyn_win_del_cb, LV_EVENT_DELETE, cid);
     } else {
         arctian_dyn_begin_launch(-1);
         g_crash_dyn = -1;
