@@ -160,7 +160,9 @@ typedef struct __attribute__((packed)) {
     uint32_t hdr_sectors;
     uint32_t crc;
     uint32_t state;      /* 1 = gecerli (commit edilmis) */
-    uint32_t reserved;
+    uint32_t prev_crc;   /* bu kaydun uzerine yazildigi eski header'in CRC'si
+                          * (eskiden "reserved"; bayat kayit denetimi icin
+                          * doldurulur, eski disklerde 0 okunur) */
 } afs_jrec_t;
 
 static uint32_t s_jseq = 0;
@@ -239,6 +241,11 @@ static int hdr_commit(void) {
         return storage_write(AFS_BASE_LBA, H.hdr_sectors, &H);
     }
 
+    /* H.flags az once eski header'in CRC'sini tasiryordu; eski deger kayit
+     * oncesinde okunup niyet kayduna konur, boylece replay hangi header'in
+     * uzerine yazildigini bilebilir. */
+    uint32_t prev_crc = H.flags;
+
     /* 1) Yeni header'i gunluk yukune yaz. */
     if (storage_write(jl + 1u, H.hdr_sectors, &H) != 0) return -1;
     storage_flush();
@@ -252,6 +259,7 @@ static int hdr_commit(void) {
     rec->hdr_sectors = H.hdr_sectors;
     rec->crc = crc32_buf(&H, hdr_bytes());
     rec->state = 1;
+    rec->prev_crc = prev_crc;
     if (storage_write(jl, 1, sec) != 0) return -1;
     storage_flush();
     /* 3) Header'a uygula. */
@@ -273,6 +281,19 @@ static void journal_replay(void) {
     if (storage_read(jl, 1, sec) != 0) return;
     if (rec->magic != AFS_JOURNAL_MAGIC || rec->state != 1 ||
         rec->hdr_sectors == 0 || rec->hdr_sectors > AFS_HDR_MAX_SEC) return;
+
+    /* Bayat kayit denetimi: kayit hangi header'in uzerine yazilmisti? Diskte
+     * henuz o header duruyorsa ("yarim commit") replay gerekir. Diskte baska,
+     * saglam bir header duruyorsa bu kayit onceki oturumdan kalmistir ve
+     * uygulanmaz; eskiden yalniz CRC'ye bakildigi icin eski bir gunluk kaydi
+     * guncel tablonun ustune yazilabiliyordu. */
+    uint32_t cur_hdr[8];
+    if (storage_read(AFS_BASE_LBA, 1, cur_hdr) != 0) return;
+    if (cur_hdr[0] == AFS_MAGIC && cur_hdr[7] != rec->prev_crc) {
+        journal_clear(jl);
+        return;
+    }
+
     if (storage_read(jl + 1u, rec->hdr_sectors, &H) != 0) return;
     if (H.magic != AFS_MAGIC || H.version != AFS_VERSION ||
         H.max_files < 32u || H.max_files > AFS_MAX_FILES_HARD) { journal_clear(jl); return; }
@@ -665,6 +686,7 @@ int afs_journal_selftest(void) {
     /* Test oncesi tutarli durumu sakla; sonda aynen geri yukle. */
     uint32_t saved_count = H.count;
     uint32_t saved_dn = H.data_next;
+    uint32_t saved_hdr_crc = H.flags;   /* diskteki header'in CRC'si */
 
     void *h = afs_create_handle("afs_jrn_test");
     if (!h) return -2;
@@ -705,6 +727,7 @@ int afs_journal_selftest(void) {
     rec->hdr_sectors = H.hdr_sectors;
     rec->crc = crc32_buf(&H, hdr_bytes());
     rec->state = 1;
+    rec->prev_crc = saved_hdr_crc;   /* diskte bu CRC'ye sahip header duruyor */
     if (storage_write(jl + 1u, H.hdr_sectors, &H) == 0) {
         storage_flush();
         if (storage_write(jl, 1, sec) == 0) {
