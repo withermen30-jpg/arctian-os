@@ -17,6 +17,10 @@
 
 #define UPD_CFG_PATH "C:/etc/update.cfg"
 #define UPD_BUF_CAP  (192u * 1024u)   /* DPK_MAX_PACKAGE (~176K) + pay */
+/* Manifest govdesinin imza dogrulamada kabul edilen ust siniri. Sunucu
+ * tarafinda manifesto bu kadar buyemez; siniri asan manifesto dogrulanamaz
+ * sayilir ve guncelleme reddedilir. */
+#define UPDATE_MANIFEST_MAX (64u * 1024u)
 
 static asi_t   *s_asi;
 static char     s_base[96];
@@ -134,12 +138,18 @@ static void u_manifest_reset(void) {
     s_man_verified = 0;
 }
 
-/* sig= satiri cikarilmis govde uzerinde imza dogrula. */
+/* sig= satiri cikarilmis govde uzerinde imza dogrula.
+ * Onceki hali: govde 8191 bayta kirpilip imza o on ek uzerinde dogrulanir,
+ * manifest ise tam parse edilirdi; ~8 KB sonrasi (url/notlar) imzayi bozmadan
+ * degistirilebilirdi. Artik sigalan baytlar ile parse edilen baytlar ayni
+ * olmak zorunda: govde tampona sigmiyorsa dogrulama basta basarisiz doner. */
 static int u_manifest_verify(const char *t, uint32_t n, uint32_t skip_s, uint32_t skip_e) {
     if (!s_man.sig[0]) return 0;
-    static char body[8192];
+    uint32_t body_len = n - (skip_e - skip_s);
+    if (body_len >= UPDATE_MANIFEST_MAX) return 0;
+    static char body[UPDATE_MANIFEST_MAX];
     uint32_t bl = 0;
-    for (uint32_t i = 0; i < n && bl < sizeof(body) - 1; i++) {
+    for (uint32_t i = 0; i < n; i++) {
         if (i >= skip_s && i < skip_e) continue;
         body[bl++] = t[i];
     }
