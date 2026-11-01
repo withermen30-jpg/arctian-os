@@ -48,6 +48,11 @@ void udp_dispatch(const uint8_t src_ip[4], const uint8_t *packet, uint16_t lengt
 
 bool udp_send(const uint8_t dst_ip[4], uint16_t src_port, uint16_t dst_port,
               const uint8_t *data, uint16_t data_len) {
+    /* packet[1500] sabit tamponu asilabilir: ksock_send 65507'ye kadar
+     * gecirdigi icin buraya 1500'den buyuk veri gelebiliyordu. Limiti
+     * asan istekte sessizce basarisiz donuyoruz; cagiran taraf hata
+     * kodunu goruyor, yigin tasmasi yok. */
+    if (data_len > 1400) return false;
     uint16_t total_len = 8 + data_len;
     uint8_t packet[1500];
 
