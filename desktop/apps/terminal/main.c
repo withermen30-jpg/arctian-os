@@ -28,11 +28,15 @@ static lv_group_t *g_group;
 
 #define SH_ENV_MAX   16
 #define SH_HIST_MAX  32
-#define SH_BUF_MAX   8192
+/* Boru ve dosya tamponlari, yakalama tamponuyla ayni boyuttu olmali:
+ * ayri boyutlar yuzunden ayni veri dosyaya 20 KB, sonraki komuta
+ * 8 KB sigiyordu ve iki kirpma da sessiz oluyordu. */
+#define SH_BUF_MAX   TERM_LOG_MAX
 
 static char g_cap[TERM_LOG_MAX];
 static int  g_cap_len;
 static int  g_cap_on;
+static int  g_cap_drop;   /* tampon doldugu icin yitirilen bayt sayisi */
 
 static const char *g_stdin;
 static int  g_stdin_len;
@@ -50,6 +54,7 @@ static char g_fbuf[SH_BUF_MAX];
 static void term_putc(char c) {
     if (g_cap_on) {
         if (g_cap_len < TERM_LOG_MAX - 1) g_cap[g_cap_len++] = c;
+        else g_cap_drop++;
         return;
     }
     if (g_log_len >= TERM_LOG_MAX - 1) return;
@@ -693,7 +698,7 @@ static void cmd_mv(const char *args) {
         for (const char *p = sp; *p; p++) if (*p == '/') base = p + 1;
         int k = 0;
         while (dp[k]) k++;
-        if (k && dp[k - 1] != '/') { dp[k++] = '/'; dp[k] = 0; }
+        if (k && dp[k - 1] != '/' && k < (int)sizeof(dp) - 1) { dp[k++] = '/'; dp[k] = 0; }
         for (int j = 0; base[j] && k < (int)sizeof(dp) - 1; j++) dp[k++] = base[j];
         dp[k] = 0;
     }
@@ -1684,7 +1689,7 @@ static void cmd_cp(const char *args) {
         for (const char *p = sp; *p; p++) if (*p == '/') base = p + 1;
         int k = 0;
         while (dp[k]) k++;
-        if (k && dp[k - 1] != '/') { dp[k++] = '/'; dp[k] = 0; }
+        if (k && dp[k - 1] != '/' && k < (int)sizeof(dp) - 1) { dp[k++] = '/'; dp[k] = 0; }
         for (int j = 0; base[j] && k < (int)sizeof(dp) - 1; j++) dp[k++] = base[j];
         dp[k] = 0;
     }
@@ -1770,7 +1775,7 @@ static void cmd_du(const char *arg) {
         char full[176];
         cstr_copy(full, sizeof(full), dir);
         int k = slen_t(full);
-        if (k && full[k - 1] != '/') { full[k++] = '/'; full[k] = 0; }
+        if (k && full[k - 1] != '/' && k < (int)sizeof(full) - 1) { full[k++] = '/'; full[k] = 0; }
         for (int j = 0; nm[j] && k < (int)sizeof(full) - 1; j++) full[k++] = nm[j];
         full[k] = 0;
         asi_stat_t st;
@@ -1801,7 +1806,7 @@ static void tree_walk(const char *dir, int depth, int maxd, int *shown) {
             char sub[176];
             cstr_copy(sub, sizeof(sub), dir);
             int k = slen_t(sub);
-            if (k && sub[k - 1] != '/') { sub[k++] = '/'; sub[k] = 0; }
+            if (k && sub[k - 1] != '/' && k < (int)sizeof(sub) - 1) { sub[k++] = '/'; sub[k] = 0; }
             for (int j = 0; nm[j] && k < (int)sizeof(sub) - 1; j++) sub[k++] = nm[j];
             sub[k] = 0;
             tree_walk(sub, depth + 1, maxd, shown);
@@ -2898,11 +2903,17 @@ static void sh_run(asi_t *asi, const char *raw) {
 
         g_cap_on = capture ? 1 : 0;
         g_cap_len = 0;
+        g_cap_drop = 0;
 
         if (cmd[0]) term_exec(asi, cmd);
 
         if (capture) {
             g_cap_on = 0;
+            if (g_cap_drop) {
+                term_puts("uyari: tampon tasti, ");
+                term_put_uint((uint32_t)g_cap_drop);
+                term_puts(" bayt kirpildi\n");
+            }
             if (g_cap_len >= TERM_LOG_MAX) g_cap_len = TERM_LOG_MAX - 1;
             g_cap[g_cap_len] = 0;
             if (last && opath[0]) {
