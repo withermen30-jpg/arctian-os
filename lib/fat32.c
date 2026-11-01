@@ -6,6 +6,8 @@ typedef struct {
     int      bdev;
     int      mounted;
     int      is_fat32;
+    int      is_fat12;      /* kume sayisi 4085'in altindaysa 12-bit girdi */
+    int      io_error;      /* zincir takibinde okuma hatasi (EOF sanilmasin) */
     uint16_t bytes_per_sector;
     uint8_t  sectors_per_cluster;
     uint16_t reserved_sectors;
@@ -61,23 +63,56 @@ static int rd_fat(fat32_t *fs, uint32_t lba, uint8_t *buf) {
     return 0;
 }
 
+/* Zincirdeki sonraki kume. Okuma hatasi EOF gibi gorunmesin diye ayri
+ * isaretlenir (io_error); cagiran taraf zinciri "bitti" sayip sessizce
+ * eksik veri uretebilirdi. 12-bit girdiler de desteklenir: kume sayisi
+ * 4085'in altindaki bozuk/hafif kartlar FAT16 sanilarak okunuyordu. */
 static uint32_t fat_next(fat32_t *fs, uint32_t cluster) {
     if (cluster < 2) return 0;
     if (fs->is_fat32) {
         uint32_t off = cluster * 4;
         uint32_t sec = fs->first_fat_sector + off / fs->bytes_per_sector;
         uint32_t idx = off % fs->bytes_per_sector;
-        if (rd_fat(fs, sec, s_fatbuf) != 0) return 0x0FFFFFFF;
+        if (rd_fat(fs, sec, s_fatbuf) != 0) {
+            fs->io_error = 1;
+            return 0x0FFFFFFF;
+        }
         uint32_t v = (uint32_t)s_fatbuf[idx] | ((uint32_t)s_fatbuf[idx + 1] << 8) |
                      ((uint32_t)s_fatbuf[idx + 2] << 16) | ((uint32_t)s_fatbuf[idx + 3] << 24);
         v &= 0x0FFFFFFF;
         if (v >= 0x0FFFFFF8 || v == 0) return 0x0FFFFFFF;
         return v;
+    } else if (fs->is_fat12) {
+        uint32_t off = cluster + cluster / 2;      /* cluster * 3 / 2 */
+        uint32_t sec = fs->first_fat_sector + off / fs->bytes_per_sector;
+        uint32_t idx = off % fs->bytes_per_sector;
+        if (rd_fat(fs, sec, s_fatbuf) != 0) {
+            fs->io_error = 1;
+            return 0xFFFFFF;
+        }
+        uint32_t lo = s_fatbuf[idx];
+        uint32_t hi;
+        if (idx + 1 < fs->bytes_per_sector) {
+            hi = s_fatbuf[idx + 1];
+        } else {                        /* girdi iki sektore tasmasi */
+            static uint8_t s_nb[4096];
+            if (rd_sector(fs, sec + 1, s_nb) != 0) {
+                fs->io_error = 1;
+                return 0xFFFFFF;
+            }
+            hi = s_nb[0];
+        }
+        uint32_t v = (cluster & 1) ? ((lo >> 4) | (hi << 4)) : (lo | ((hi & 0x0F) << 8));
+        if (v >= 0xFF8 || v == 0) return 0xFFFFFF;
+        return v;
     } else {
         uint32_t off = cluster * 2;
         uint32_t sec = fs->first_fat_sector + off / fs->bytes_per_sector;
         uint32_t idx = off % fs->bytes_per_sector;
-        if (rd_fat(fs, sec, s_fatbuf) != 0) return 0xFFFFFFFF;
+        if (rd_fat(fs, sec, s_fatbuf) != 0) {
+            fs->io_error = 1;
+            return 0xFFFFFFFF;
+        }
         uint32_t v = (uint32_t)s_fatbuf[idx] | ((uint32_t)s_fatbuf[idx + 1] << 8);
         if (v >= 0xFFF8 || v == 0) return 0xFFFFFFFF;
         return v;
@@ -85,7 +120,15 @@ static uint32_t fat_next(fat32_t *fs, uint32_t cluster) {
 }
 
 static int fat_is_eoc(fat32_t *fs, uint32_t c) {
-    return fs->is_fat32 ? (c >= 0x0FFFFFF8) : (c >= 0xFFF8);
+    if (fs->is_fat32) return c >= 0x0FFFFFF8;
+    if (fs->is_fat12) return c >= 0xFF8 || c == 0xFFFFFF;
+    return c >= 0xFFF8;
+}
+
+/* Kume numarasi veri alani icinde mi? Bozuk FAT'tan gelen astronomik
+ * degerler LBA hesabinda tasiyip disk disina cikabiliyordu. */
+static int cluster_valid(fat32_t *fs, uint32_t c) {
+    return c >= 2 && c < fs->count_of_clusters + 2;
 }
 
 static uint32_t cluster_lba(fat32_t *fs, uint32_t cluster) {
@@ -125,12 +168,19 @@ static int dir_iter(fat32_t *fs, uint32_t start_cluster, int root16,
     uint32_t cluster = start_cluster;
     uint32_t lba;
     uint32_t nsec;
+    /* Bozuk FAT'da kume zinciri kendi uzerine donebilir; sinirsiz yuruyus
+     * masaustunu asirdi. Adim sayisi hacimle, dongu de Floyd kaplumbaga-
+     * tavsan karsilastirmasiyla erken yakalanir. */
+    uint32_t steps = 0;
+    uint32_t slow = start_cluster;
+    int slow_flip = 0;
 
     if (root16) {
         lba = fs->first_root_dir_sector;
         nsec = fs->root_dir_sectors;
     } else {
         if (cluster < 2) return 1;
+        if (!cluster_valid(fs, cluster)) return -1;
         lba = cluster_lba(fs, cluster);
         nsec = fs->sectors_per_cluster;
     }
@@ -183,8 +233,16 @@ static int dir_iter(fat32_t *fs, uint32_t start_cluster, int root16,
             }
         }
         if (root16) return 1;
+        if (fs->io_error) return -1;
         uint32_t nextc = fat_next(fs, cluster);
+        if (fs->io_error) return -1;
         if (fat_is_eoc(fs, nextc)) return 1;
+        if (!cluster_valid(fs, nextc)) return -1;
+        if (++steps > fs->count_of_clusters + 1) return -1;
+        if ((slow_flip ^= 1)) {
+            slow = fat_next(fs, slow);
+            if (slow == nextc) return -1;      /* zincir kendi uzerine dondu */
+        }
         cluster = nextc;
         lba = cluster_lba(fs, cluster);
         nsec = fs->sectors_per_cluster;
@@ -264,6 +322,7 @@ int fat32_mount(int bdev) {
 
     s_fs.bdev = bdev;
     s_fs.is_fat32 = (fat16sz == 0);
+    s_fs.io_error = 0;
     s_fs.bytes_per_sector = bps;
     s_fs.sectors_per_cluster = spc;
     s_fs.reserved_sectors = reserved;
@@ -274,6 +333,10 @@ int fat32_mount(int bdev) {
     s_fs.first_root_dir_sector = first_root;
     s_fs.first_data_sector = first_data;
     s_fs.count_of_clusters = (total - first_data) / spc;
+    /* Yag tipi kume sayisindan bellidir: 4085 alti FAT12. Eskiden FAT32
+     * olmayan her sey 16-bit girdiyle okundugu icin kucuk kartlar yanlis
+     * cozuluyordu. */
+    s_fs.is_fat12 = (!s_fs.is_fat32 && s_fs.count_of_clusters < 4085u) ? 1 : 0;
     s_fs.root_cluster = s_fs.is_fat32 ? (root_cluster ? root_cluster : 2) : 0;
     s_fs.total_sectors = total;
     s_fs.bps512 = bps / 512;
@@ -331,6 +394,7 @@ uint32_t fat_read_path(const char *path, void *buf, uint32_t size) {
     uint8_t *out = (uint8_t *)buf;
 
     while (done < toread && cluster >= 2) {
+        if (!cluster_valid(&s_fs, cluster)) break;
         uint32_t lba = cluster_lba(&s_fs, cluster);
         for (uint32_t s = 0; s < s_fs.sectors_per_cluster && done < toread; s++) {
             if (rd_sector(&s_fs, lba + s, s_sec) != 0) return done;
@@ -340,6 +404,7 @@ uint32_t fat_read_path(const char *path, void *buf, uint32_t size) {
             done += chunk;
         }
         cluster = fat_next(&s_fs, cluster);
+        if (s_fs.io_error) break;         /* zincir okunamadi: veri eksik */
         if (fat_is_eoc(&s_fs, cluster)) break;
     }
     return done;
