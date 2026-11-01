@@ -375,6 +375,12 @@ static void group_add(lv_obj_t *o) {
  * Tiklayinca o alana gecilir. Alan sayisi ayardan gelir. */
 static lv_obj_t *s_ws_box;
 static lv_obj_t *s_ws_dot[4];
+#define WS_DW 76                    /* 4 nokta yuvasi: 3x20 ara + 16 pil */
+
+static void ws_dot_cb(lv_event_t *e) {
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    workspace_switch(i - g_ws);     /* mutli secim: fark kadar gec */
+}
 
 /* Kabuk yeniden kurulurken gorev cubugu nesneleri silinir; statik isaretciler
  * sifirlanmali (aksi halde tb_ws_refresh silinmis nesneye erisir). */
@@ -396,18 +402,21 @@ void tb_reset_objects(void) {
     s_bat_h = 0;
 }
 
-/* Dock'unda calisma alani noktalari yok; isaretciler silinmis
- * olabilecegi icin fonksiyon korunur (settings.c / windows.c cagirir). */
+/* Nokta boyutlari dock olcegiyle (dk_s) verilir; gosterge dock'un
+ * cocugudur. Alan sayisi her tazelemede ayardan okunur, fazla noktalar
+ * gizlenir. */
 void tb_ws_refresh(void) {
-    if (!s_ws_box) return;    for (int i = 0; i < 4; i++) {
+    if (!s_ws_box) return;
+    for (int i = 0; i < 4; i++) {
         if (!s_ws_dot[i]) continue;
         if (i >= kv_get_int("ws_count", 3)) {
             lv_obj_add_flag(s_ws_dot[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
         lv_obj_remove_flag(s_ws_dot[i], LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_bg_opa(s_ws_dot[i], i == g_ws ? LV_OPA_COVER : 110, 0);
-        lv_obj_set_size(s_ws_dot[i], i == g_ws ? ui_s(16) : ui_s(10), ui_s(10));
+        int act = (i == g_ws);
+        lv_obj_set_style_bg_opa(s_ws_dot[i], act ? LV_OPA_COVER : 110, 0);
+        lv_obj_set_size(s_ws_dot[i], act ? dk_s(16) : dk_s(8), dk_s(8));
     }
 }
 
@@ -418,16 +427,18 @@ void tb_ws_refresh(void) {
 void tb_layout(void) {
     if (!g_taskbar || !g_tb_logo) return;
 
-    /* dock_genisligi = 596 + 48n - 4 (tasarim birimi).
+    /* dock_genisligi = 596 + 48n - 4 + 84 (tasarim birimi; 84 = calisma
+     * alani noktalarinin kutusu).
      * Tum x degerleri tasarim biriminde biriktirilip tek seferde olceklenir;
      * boylece kucuk yuvarlamalar birikip kayma yapmaz. */
     int n = g_tb_n;
-    int w_du = 596 + 48 * n - 4;
+    int w_du = 596 + 48 * n - 4 + WS_DW + 8;   /* + calisma alani noktalari */
     int u = 8;
 
     lv_obj_set_size(g_taskbar, dk_s(w_du), dk_s(60));
 
     lv_obj_set_pos(g_tb_logo, dk_s(u), dk_s(8));       u += 44 + 8;
+    if (s_ws_box) { lv_obj_set_pos(s_ws_box, dk_s(u), dk_s(8)); u += WS_DW + 8; }
     lv_obj_set_pos(g_tb_search, dk_s(u), dk_s(10));    u += 200 + 14;
     lv_obj_set_pos(g_tb_sep1, dk_s(u), dk_s(18));      u += 1 + 14;
     lv_obj_set_pos(g_tb_apps_cont, dk_s(u), dk_s(8));
@@ -711,6 +722,26 @@ void build_taskbar(lv_obj_t *scr) {
     lv_obj_remove_flag(g_tb_apps_cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(g_tb_apps_cont, 0, TB_IC);
 
+    /* ---- Calisma alani noktalari ----
+     * Gosterge uzun sure yalniz okundu, hic kurulmadi; ayarlardaki
+     * "Calisma alani sayisi" bu yuzden hicbir seye bagli gorunmedi.
+     * Kutu baslat dugmesinin hemen ardinda; noktaya tiklama o alana gecer. */
+    s_ws_box = lv_obj_create(g_taskbar);
+    lv_obj_remove_style_all(s_ws_box);
+    lv_obj_remove_flag(s_ws_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_ws_box, dk_s(WS_DW), TB_IC);
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *d = lv_obj_create(s_ws_box);
+        lv_obj_remove_style_all(d);
+        lv_obj_remove_flag(d, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_radius(d, dk_s(4), 0);
+        lv_obj_set_style_bg_color(d, lv_color_hex(DK_TEXT), 0);
+        lv_obj_align(d, LV_ALIGN_LEFT_MID, dk_s(i * 20), 0);
+        lv_obj_add_event_cb(d, ws_dot_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        s_ws_dot[i] = d;
+    }
+
     /* ---- Ag + pil: 72x44 kutu, 10 px yatay dolgu, 8 px ara ---- */
     g_tb_status = lv_obj_create(g_taskbar);
     lv_obj_remove_style_all(g_tb_status);
@@ -829,6 +860,7 @@ void build_taskbar(lv_obj_t *scr) {
     lv_obj_align(g_date_label, LV_ALIGN_BOTTOM_RIGHT, -dk_s(12), -dk_s(5));
 
     tb_rebuild_icons();
+    tb_ws_refresh();   /* alan sayisi/etkin alan noktalarini ilk haliyle ciz */
     clock_tick();
 }
 
