@@ -106,6 +106,21 @@ void settings_apply_runtime(void) {
     g_shell_dirty = 3;
 }
 
+/* shell_rebuild'i bir sonraki ana dongu turune erteler. Callback sirasinda
+ * cagrilirsa widget kendi olay islenirken yok olur (LVGL icinde yuruyen
+ * dongu bayat isaretciler uzerinde devam eder); timer ana dongunun
+ * lv_timer_handler'inda, olay dispatchi bitmisken calisir. */
+static lv_timer_t *s_rebuild_timer;
+static void s_rebuild_timer_cb(lv_timer_t *t) {
+    s_rebuild_timer = 0;
+    lv_timer_delete(t);
+    shell_rebuild();
+}
+static void shell_rebuild_soon(void) {
+    if (s_rebuild_timer) return;   /* zaten sirada */
+    s_rebuild_timer = lv_timer_create(s_rebuild_timer_cb, 1, 0);
+}
+
 
 void settings_set_int(const char *key, int val) {
     char b[16];
@@ -146,7 +161,7 @@ void settings_set_int(const char *key, int val) {
     }
 
     settings_apply_runtime();
-    if (rebuild) shell_rebuild();
+    if (rebuild) shell_rebuild_soon();
 }
 
 
@@ -186,7 +201,7 @@ void shell_rebuild(void) {
 
     for (int i = 0; i < MAX_WINS; i++) {
         if (g_recs[i] && g_recs[i]->win) win_close_rec(g_recs[i]);
-        if (g_recs[i]) { g_asi->mem->free(g_recs[i]); g_recs[i] = 0; }
+        g_recs[i] = 0;   /* kapanan kayit win_close_rec'te serbest listeye gecti */
     }
 
     lv_obj_clean(lv_screen_active());
