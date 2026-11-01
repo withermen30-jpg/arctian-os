@@ -54,15 +54,19 @@ static int nvme_wait_ready(int ready) {
     return -1;
 }
 
-/* Admin komut gonderir; QEMU'da tamamlanma BH ile geldiginden birkac kez dener. */
-static int nvme_admin_once(uint32_t *sqe, uint32_t *result, int wait_iters) {
+/* Admin komut SQ'ye tek bir komut koyar ve kapilini calar. */
+static void nvme_admin_submit(uint32_t *sqe) {
     uint32_t *slot = &s_asq[g_asq_tail * 16];
     for (int i = 0; i < 16; i++) slot[i] = sqe[i];
     g_asq_tail = (g_asq_tail + 1) % NVME_AQ_ENTRIES;
     nvme_doorbell(0, g_asq_tail, 0);
+}
 
+/* Sradaki admin tamamlanmasini bekler; QEMU'da tamamlanma BH ile
+ * geldiginden belli araliklarla VM exit yapilir. */
+static int nvme_admin_reap(uint32_t *result, long wait_iters) {
     for (long t = 0; t < wait_iters; t++) {
-        if ((t & 0xFF) == 0) outb(0x80, 0);   /* VM exit: BH'lerin calismasi icin */
+        if ((t & 0xFF) == 0) outb(0x80, 0);   /* BH'lerin calismasi icin */
         uint32_t *cqe = &s_acq[g_acq_head * 4];
         uint32_t dw3 = cqe[3];
         uint16_t sf = (uint16_t)(dw3 >> 16);   /* status field: bit0=phase */
@@ -78,10 +82,15 @@ static int nvme_admin_once(uint32_t *sqe, uint32_t *result, int wait_iters) {
     return -1;
 }
 
+/* Komut yalniz BIR kez gonderilir, sonra sadece tamamlanma beklenir.
+ * Zaman asiminda komut tekrar kuyruklanmaz: kapisi coktan calinmis bir
+ * komutun ikincisi eklenirse denetleyici eski olana bir tamamlanma
+ * dondurur ve SQ/CQ kafaslari kayar (gercek donanimdaki risk). Tamamlanma
+ * hic gelmezse denetleyici sifirlamasi gerekir; bunu yapamiyoruz, bu
+ * yuzden hata dondurup ust katmanin cuop veri okumasinin onune geciyoruz. */
 static int nvme_admin(uint32_t *sqe, uint32_t *result) {
-    for (int attempt = 0; attempt < 12; attempt++) {
-        if (nvme_admin_once(sqe, result, 400000) == 0) return 0;
-    }
+    nvme_admin_submit(sqe);
+    if (nvme_admin_reap(result, 4000000L) == 0) return 0;
     NDBG("[nvme] admin fail phase=%d head=%d tail=%d\n", g_phase, g_acq_head, g_asq_tail);
     return -1;
 }
@@ -109,10 +118,7 @@ static int nvme_io_once(uint32_t *sqe, int wait_iters) {
 }
 
 static int nvme_io(uint32_t *sqe) {
-    for (int attempt = 0; attempt < 12; attempt++) {
-        if (nvme_io_once(sqe, 400000) == 0) return 0;
-    }
-    return -1;
+    return nvme_io_once(sqe, 4000000L);
 }
 
 static void nvme_mk_sqe(uint32_t *s, uint8_t opcode, uint32_t cid) {
