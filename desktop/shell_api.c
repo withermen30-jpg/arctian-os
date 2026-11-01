@@ -125,14 +125,42 @@ int arctian_shell_trash(const char *path) {
     return (fs->remove(path) == 0) ? 0 : -1;
 }
 
+/* Bildirim kutusu ile onu 4 sn sonra silecek zamanlayici karsilikli adres
+ * tasiyordu. Kutu suresi dolmadan kapanirsa (kullanici kapatir, kabuk yeniden
+ * kurulur) zamanlayici silinmis nesneyi silmeye calisiyordu. Artik ikisi tek
+ * kaydi paylasir: hangisi once olurse digeri iptal edilir. */
+typedef struct {
+    lv_obj_t   *box;
+    lv_timer_t *tm;
+} toast_t;
+
+static void toast_free(toast_t *tt) {
+    if (tt && g_asi && g_asi->mem && g_asi->mem->free) g_asi->mem->free(tt);
+}
+
+static void toast_obj_del_cb(lv_event_t *e) {
+    toast_t *tt = (toast_t *)lv_event_get_user_data(e);
+    if (!tt) return;
+    tt->box = 0;
+    if (tt->tm) { lv_timer_delete(tt->tm); tt->tm = 0; }
+    toast_free(tt);
+}
+
 static void toast_del_cb(lv_timer_t *t) {
-    lv_obj_t *o = (lv_obj_t *)lv_timer_get_user_data(t);
-    if (o) lv_obj_delete(o);
+    toast_t *tt = (toast_t *)lv_timer_get_user_data(t);
+    if (!tt) return;
+    lv_obj_t *o = tt->box;
+    tt->tm = 0;                /* nesne callback'i bu zamanlayiciya dokunmasin */
     lv_timer_delete(t);
+    if (o) lv_obj_delete(o);   /* toast_obj_del_cb kaydi serbest birakir */
+    else toast_free(tt);
 }
 
 void arctian_notify(const char *title, const char *msg) {
     qc_notify_add(title, msg);   /* bildirim merkezi yigini */
+    toast_t *tt = 0;
+    if (g_asi && g_asi->mem && g_asi->mem->alloc)
+        tt = (toast_t *)g_asi->mem->alloc(sizeof(toast_t));
     lv_obj_t *box = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(box);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
@@ -155,8 +183,11 @@ void arctian_notify(const char *title, const char *msg) {
     lv_label_set_long_mode(t2, LV_LABEL_LONG_DOT);
 
     lv_obj_move_foreground(box);
-    lv_timer_t *tm = lv_timer_create(toast_del_cb, 4000, box);
-    lv_timer_set_repeat_count(tm, 1);
+    if (!tt) return;         /* bellek yok: bildirim ekranda kalir, cosmez */
+    tt->box = box;
+    lv_obj_add_event_cb(box, toast_obj_del_cb, LV_EVENT_DELETE, tt);
+    tt->tm = lv_timer_create(toast_del_cb, 4000, tt);
+    lv_timer_set_repeat_count(tt->tm, 1);
 }
 
 
