@@ -59,8 +59,12 @@ int storage_read(uint32_t lba, uint32_t count, void *buf) {
     if (s_cur < 0) return -1;
     if (!s_crypt_on) return blockdev_read(s_cur, lba, count, buf);
     uint32_t base = s_crypt.base_lba, end = s_crypt.end_lba;
-    if (lba >= end || lba + count <= base) return blockdev_read(s_cur, lba, count, buf);
-    if (lba >= base && lba + count <= end) return s_crypt.read(lba, count, buf);
+    /* lba+count uint32'te tasabilir (2^32 sektör ~>2TB sinirinda); bugun
+     * istek yanlis siniflanip sifreli bolgeye duz veri / tersi yazilabiliyordu.
+     * Aralik matematisi 64 bite tasinir. */
+    uint64_t e = (uint64_t)lba + count;
+    if (lba >= end || e <= base) return blockdev_read(s_cur, lba, count, buf);
+    if (lba >= base && e <= end) return s_crypt.read(lba, count, buf);
     uint32_t done = 0;
     if (lba < base) {
         uint32_t n = base - lba;
@@ -69,7 +73,7 @@ int storage_read(uint32_t lba, uint32_t count, void *buf) {
     }
     uint32_t l2 = lba + done;
     uint32_t n2 = count - done;
-    if (l2 + n2 > end) n2 = end - l2;
+    if ((uint64_t)l2 + n2 > end) n2 = (uint32_t)(end - l2);
     if (n2 && s_crypt.read(l2, n2, (uint8_t *)buf + done * 512u) != 0) return -1;
     done += n2;
     if (done < count)
@@ -81,8 +85,10 @@ int storage_write(uint32_t lba, uint32_t count, const void *buf) {
     if (s_cur < 0) return -1;
     if (!s_crypt_on) return blockdev_write(s_cur, lba, count, buf);
     uint32_t base = s_crypt.base_lba, end = s_crypt.end_lba;
-    if (lba >= end || lba + count <= base) return blockdev_write(s_cur, lba, count, buf);
-    if (lba >= base && lba + count <= end) return s_crypt.write(lba, count, buf);
+    /* storage_read'teki ile ayni 64-bit aralik gerekcesi */
+    uint64_t e = (uint64_t)lba + count;
+    if (lba >= end || e <= base) return blockdev_write(s_cur, lba, count, buf);
+    if (lba >= base && e <= end) return s_crypt.write(lba, count, buf);
     uint32_t done = 0;
     if (lba < base) {
         uint32_t n = base - lba;
@@ -91,7 +97,7 @@ int storage_write(uint32_t lba, uint32_t count, const void *buf) {
     }
     uint32_t l2 = lba + done;
     uint32_t n2 = count - done;
-    if (l2 + n2 > end) n2 = end - l2;
+    if ((uint64_t)l2 + n2 > end) n2 = (uint32_t)(end - l2);
     if (n2 && s_crypt.write(l2, n2, (const uint8_t *)buf + done * 512u) != 0) return -1;
     done += n2;
     if (done < count)
