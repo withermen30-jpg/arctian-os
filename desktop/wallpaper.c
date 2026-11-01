@@ -217,11 +217,17 @@ static void cursor_buf_free(lv_event_t *e) {
 void build_cursor(void) {
     static lv_obj_t *s_cursor;
     static int s_size;
+    static int s_gen;
 
     /* Tuval 32 birim; dk_s ile ekran yuksekligine olceklenir. */
     int S = dk_s(32);
     if (S < 20) S = 20;
     if (S > 72) S = 72;
+
+    /* Kabuk yeniden kurulurken ekranla birlikte bu tuval de silinir; eski
+     * isaretciyi diri sanip erken donmek imleci hic cizmemek demekti
+     * (olcek ayni kalsa bile). Nesil farkinda isaretcileri unutuyoruz. */
+    if (s_gen != g_shell_gen) { s_cursor = 0; s_size = 0; s_gen = g_shell_gen; }
 
     if (s_cursor) {
         if (s_size == S) return;          /* ayni olcek: yeniden kurma */
