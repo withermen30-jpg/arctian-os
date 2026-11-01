@@ -103,7 +103,12 @@ static float pnum(const char **pp) {
     if (*p == 'e' || *p == 'E') {
         p++; int es = 1;
         if (*p == '-') { es = -1; p++; } else if (*p == '+') p++;
-        int e = 0; while (*p >= '0' && *p <= '9') { e = e * 10 + (*p - '0'); p++; }
+        int e = 0;
+        /* "1e2000000000" us sayisini int'e sigdirmadan iki milyar turluk
+         * carpim dongusune ceviriyordu. 48'den buyuk us float'ta zaten
+         * sonuc vermez (inf/0); rakam okunur ama birikmez. */
+        while (*p >= '0' && *p <= '9') { if (e < 48) e = e * 10 + (*p - '0'); p++; }
+        if (e > 48) e = 48;
         float m = 1; for (int i = 0; i < e; i++) m *= 10.0f;
         v *= (es > 0) ? m : (1.0f / m);
     }
@@ -426,7 +431,12 @@ int svg_render(const char *svg, int W, int H, uint32_t *out) {
     float vsx = (float)W / vbW, vsy = (float)H / vbH;
 
     float gtx = -vbX, gty = -vbY, gsx = 1, gsy = 1, gcos = 1, gsin = 0;
-    float stk[8][6]; int stk_n = 0;
+    float stk[8][6];
+    /* Acik <g> sayisi; yigin indeksi de budur. Sekizden derin gruplar
+     * sayilir ama kayit birakmaz; Boylece her </g> tam olarak kendi
+     * <g>'sunun durumunu kapatir. Eskiden derin <g> hic itilmedigi
+     * halde </g>'i atadan durum pop'luyordu ve yigin kayiyordu. */
+    int g_depth = 0;
 
     uint32_t fill = 0x202124; float fill_a = 1; int fill_on = 1;
     uint32_t stroke = 0; float stroke_a = 1; float sw = 1; int stroke_on = 0;
@@ -454,13 +464,15 @@ int svg_render(const char *svg, int W, int H, uint32_t *out) {
         { int bl = 0; for (const char *q = name_start; q < gt && bl < 8191; q++) tag[bl++] = q[0]; tag[bl] = 0; }
 
         if (closing) {
-            if (seq(name, "g") && stk_n > 0) {
-                stk_n--;
-                gtx = stk[stk_n][0]; gty = stk[stk_n][1];
-                gsx = stk[stk_n][2]; gsy = stk[stk_n][3];
-                gcos = stk[stk_n][4]; gsin = stk[stk_n][5];
-                fill = sf[stk_n]; fill_a = sfa[stk_n]; fill_on = sfon[stk_n];
-                stroke = so[stk_n]; stroke_a = ssa[stk_n]; sw = ssw[stk_n]; stroke_on = son[stk_n];
+            if (seq(name, "g") && g_depth > 0) {
+                g_depth--;             /* kendi <g>'sunu kapatir */
+                if (g_depth < 8) {     /* derin gruplar kayit birakmisti */
+                    gtx = stk[g_depth][0]; gty = stk[g_depth][1];
+                    gsx = stk[g_depth][2]; gsy = stk[g_depth][3];
+                    gcos = stk[g_depth][4]; gsin = stk[g_depth][5];
+                    fill = sf[g_depth]; fill_a = sfa[g_depth]; fill_on = sfon[g_depth];
+                    stroke = so[g_depth]; stroke_a = ssa[g_depth]; sw = ssw[g_depth]; stroke_on = son[g_depth];
+                }
             }
             p = gt + 1; continue;
         }
@@ -471,13 +483,15 @@ int svg_render(const char *svg, int W, int H, uint32_t *out) {
             p = gt; continue;
         }
         if (seq(name, "svg") || seq(name, "g")) {
-            if (seq(name, "g") && stk_n < 8) {
-                stk[stk_n][0] = gtx; stk[stk_n][1] = gty; stk[stk_n][2] = gsx; stk[stk_n][3] = gsy;
-                stk[stk_n][4] = gcos; stk[stk_n][5] = gsin;
-                sf[stk_n] = fill; sfa[stk_n] = fill_a; sfon[stk_n] = fill_on;
-                so[stk_n] = stroke; ssa[stk_n] = stroke_a; ssw[stk_n] = sw; son[stk_n] = stroke_on;
-                stk_n++;
-                parse_transform(tag, &gtx, &gty, &gsx, &gsy, &gcos, &gsin);
+            if (seq(name, "g")) {
+                if (g_depth < 8) {
+                    stk[g_depth][0] = gtx; stk[g_depth][1] = gty; stk[g_depth][2] = gsx; stk[g_depth][3] = gsy;
+                    stk[g_depth][4] = gcos; stk[g_depth][5] = gsin;
+                    sf[g_depth] = fill; sfa[g_depth] = fill_a; sfon[g_depth] = fill_on;
+                    so[g_depth] = stroke; ssa[g_depth] = stroke_a; ssw[g_depth] = sw; son[g_depth] = stroke_on;
+                    parse_transform(tag, &gtx, &gty, &gsx, &gsy, &gcos, &gsin);
+                }
+                g_depth++;             /* yigindan derinler de sayilir */
             }
             /* Kok svg etiketindeki sunum oznitelikleri de devralinir;
              * aksi halde <svg fill="none" stroke=...> yok sayilir ve
