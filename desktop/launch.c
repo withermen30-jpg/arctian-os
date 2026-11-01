@@ -76,6 +76,23 @@ void recover_disarm(void) {
 }
 
 
+/* Kabuk yeniden kurulurken ekranla birlikte yukleme perdesi de silinir.
+ * Siradaki zamanlayici calistirilirsa silinmis perdeye dokunur ve yarim
+ * kalan baglamla bir uygulamayi "acik" birakirdi; buradan iptal ediliyor
+ * (temizlik, cokme yolundaki handle_app_crash ile ayni). */
+void launch_rebuild_reset(void) {
+    if (!g_launch_timer) return;     /* beklemede acilis yok */
+    lv_timer_delete(g_launch_timer);
+    g_launch_timer = 0;
+    if (g_launch_ctx) { lv_free(g_launch_ctx); g_launch_ctx = 0; }
+    if (g_asi && g_asi->system && g_asi->system->recover_end) g_asi->system->recover_end();
+    g_launch_overlay = 0;
+    g_launch_win = 0;
+    g_launch_title[0] = 0;
+    if (g_crash_dyn >= 0) { arctian_dyn_mark_closed(g_crash_dyn); g_crash_dyn = -1; }
+}
+
+
 void loading_done_cb(lv_timer_t *timer) {
     app_ctx_t *c = (app_ctx_t *)lv_timer_get_user_data(timer);
     create_window(c->title, 520, 340);

@@ -523,6 +523,8 @@ void recover_set_reason(const char *s);
 void recover_prepare(const char *title);
 void recover_begin_call(uint32_t timeout_ms);
 void recover_disarm(void);
+void launch_rebuild_reset(void);   /* kabuk yeniden kurulurken yarim kalan
+                                    * acilis zamanlayicisini iptal eder */
 void loading_done_cb(lv_timer_t *timer);
 void open_app(const char *title);
 int title_eq(const char *a, const char *b);

@@ -204,6 +204,10 @@ void shell_rebuild(void) {
         g_recs[i] = 0;   /* kapanan kayit win_close_rec'te serbest listeye gecti */
     }
 
+    /* Ekran temizlenmeden once: siradaki yukleme zamanlayicisi silinmis
+     * perdeye yazmasin, yarim acilis "acik uygulama" olarak kalmasin. */
+    launch_rebuild_reset();
+
     lv_obj_clean(lv_screen_active());
 
     g_start_menu = 0; g_taskbar = 0; g_wallpaper = 0;
