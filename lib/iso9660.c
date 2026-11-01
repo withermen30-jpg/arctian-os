@@ -77,7 +77,14 @@ int iso9660_find(const char *name, uint32_t *lba, uint32_t *size) {
         if (off + rlen > total) break;
 
         uint8_t flags = dir[off + 25];
+        /* Ad uzunlugu kayit uzunluguna karsi denetlenmiyordu: bozuk bir
+         * indekste 33 baytlik sabit basliktan sonra tasmayan bir uzunluk,
+         * tamponun bitisindan okumak demekti. */
+        if (rlen < 34) { off += rlen; continue; }
         uint8_t nlen = dir[off + 32];
+        uint32_t room = total - (off + 33);
+        if (nlen > (uint8_t)(rlen - 33)) nlen = (uint8_t)(rlen - 33);
+        if (nlen > room) nlen = (uint8_t)room;
         if (!(flags & 0x02)) { /* dosya */
             char norm[64];
             normalize((const char *)(dir + off + 33), nlen, norm, sizeof(norm));
