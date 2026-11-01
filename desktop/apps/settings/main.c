@@ -170,7 +170,7 @@ static void s_content_clear(void) {
 }
 
 static void s_nav_active(void) {
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 9; i++) {   /* 9 sekme var; eskiden i<7 son ikisi vurgulamiyordu */
         if (!g_nav_btns[i]) continue;
         uint32_t bg = (i == g_page) ? ADL_ACCENT : ADL_SURFACE_2;
         lv_obj_set_style_bg_color(g_nav_btns[i], lv_color_hex(bg), 0);
@@ -1221,10 +1221,17 @@ static void s_build_content(void) {
 
 static void s_win_del_cb(lv_event_t *e) {
     (void)e;
+    /* Guncelleme denetimi/indirmesi surerken pencere kapatilirsa timer
+     * silinmis etiket ve cubuga yazmaya devam ediyordu. */
+    if (g_upd_timer) { lv_timer_delete(g_upd_timer); g_upd_timer = 0; }
+    g_upd_msg = 0;
+    g_upd_bar = 0;
+    g_upd_plan_lbl = 0;
+    g_crypt_ta = 0;
     g_win = 0;
     g_nav = 0;
     g_content = 0;
-    for (int i = 0; i < 8; i++) g_nav_btns[i] = 0;
+    for (int i = 0; i < 9; i++) g_nav_btns[i] = 0;
 }
 
 void app_entry(lv_obj_t *win, asi_t *asi) {
@@ -1234,7 +1241,7 @@ void app_entry(lv_obj_t *win, asi_t *asi) {
     g_content = 0;
     g_page = 0;
     s_pool_n = 0;
-    for (int i = 0; i < 8; i++) g_nav_btns[i] = 0;
+    for (int i = 0; i < 9; i++) g_nav_btns[i] = 0;
 
     lv_obj_set_flex_flow(win, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
