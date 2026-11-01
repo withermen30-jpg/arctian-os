@@ -516,6 +516,9 @@ lv_obj_t *create_window(const char *title, int w, int h);
 void build_welcome_window(void);
 int win_pid(lv_obj_t *win);
 winrec_t *winrec_top(void);
+int winrec_alive(winrec_t *r);    /* 0.7: kayit hala tabloda mi (serbest
+                                   * liste geri donusumunde bayat pointer
+                                   * karsilastirmalarina karsi) */
 void recover_set_reason(const char *s);
 void recover_prepare(const char *title);
 void recover_begin_call(uint32_t timeout_ms);

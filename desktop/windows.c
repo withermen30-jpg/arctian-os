@@ -84,6 +84,11 @@ void update_app_indicators(void) {
 }
 
 
+/* Kapali pencerelerin kaydlari burada geri donusturulur; her acilista yeni
+ * bellek istenmez, kayip da birikmez. */
+static winrec_t *s_rec_free[MAX_WINS * 2];
+static int s_rec_free_n;
+
 void win_close_rec(winrec_t *r) {
     if (!r) return;
     win_geom_save(r);
@@ -94,6 +99,14 @@ void win_close_rec(winrec_t *r) {
     if (r->btn) lv_obj_delete(r->btn);
     if (r->win) lv_obj_delete(r->win);
     r->btn = 0; r->win = 0;
+    /* Slot temizlenir, kayit serbest listeye alinir. Eskiden ikisi de
+     * yapilmiyordu: tablo 8 kayitla dolup tasiyor, kapanan pencerenin
+     * kayiti kayboluyordu. Liste dolarsa kayit burada kalir (siztir) ama
+     * bozuk durum olusmaz. */
+    for (int i = 0; i < MAX_WINS; i++)
+        if (g_recs[i] == r) { g_recs[i] = 0; break; }
+    if (s_rec_free_n < (int)(sizeof(s_rec_free) / sizeof(s_rec_free[0])))
+        s_rec_free[s_rec_free_n++] = r;
     update_app_indicators();
 }
 
@@ -488,12 +501,16 @@ lv_obj_t *create_window(const char *title, int w, int h) {
     lv_obj_t *t = label(tb, title, ADL_TEXT);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 12, 0);
 
-    /* running kaydi */
-    winrec_t *r = (winrec_t *)g_asi->mem->alloc(sizeof(winrec_t));
+    /* running kaydi: once serbest listeden dener, yoksa yeni ayirir */
+    winrec_t *r = 0;
+    while (s_rec_free_n > 0 && !r) r = s_rec_free[--s_rec_free_n];
+    if (!r) r = (winrec_t *)g_asi->mem->alloc(sizeof(winrec_t));
+    if (r) {
     r->win = win; r->btn = 0;
     scopy(r->title, title, 39);
     r->pid = 0;
     r->relayout = 0;
+    r->hotkey = 0; r->drop = 0;   /* geri donen kayıtta eski callback kalmasin */
     r->max_saved_w = r->max_saved_h = r->max_saved_x = r->max_saved_y = 0;
     r->fgroup = 0;
     r->ws = g_ws;
@@ -505,17 +522,18 @@ lv_obj_t *create_window(const char *title, int w, int h) {
     g_pending_caps = CAP_ALL;
     int slot = -1;
     for (int i = 0; i < MAX_WINS; i++) if (!g_recs[i]) { slot = i; break; }
-    if (slot < 0) slot = 0;
-    g_recs[slot] = r;
+    /* Yer yoksa mevcut kayit ezilmez; pencere kayitsiz calisir. */
+    if (slot >= 0) g_recs[slot] = r;
 
     /* kontrol butonlari (kucult / buyut / kapat) */
     add_ctrl(tb, SVG_CLOSE, ADL_DANGER, win_close_cb, r, -6);
     add_ctrl(tb, SVG_MAX,   0x3A3F4B,   win_max_cb,   r, -32);
     add_ctrl(tb, SVG_MIN,   0x3A3F4B,   win_min_cb,   r, -58);
 
-    update_app_indicators();
     lv_obj_add_event_cb(win, win_size_cb, LV_EVENT_SIZE_CHANGED, r);
     lv_obj_add_event_cb(tb, title_dbl_cb, LV_EVENT_DOUBLE_CLICKED, r);
+    }
+    update_app_indicators();
     lv_obj_move_foreground(win);
     return win;
 }
@@ -546,6 +564,13 @@ winrec_t *win_find(const char *title) {
         winrec_t *r = g_recs[j];
         if (r && r->win && title_eq(r->title, title)) return r;
     }
+    return 0;
+}
+
+int winrec_alive(winrec_t *r) {
+    if (!r) return 0;
+    for (int i = 0; i < MAX_WINS; i++)
+        if (g_recs[i] == r) return 1;
     return 0;
 }
 

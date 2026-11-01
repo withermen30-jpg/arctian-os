@@ -475,6 +475,9 @@ void desktop_main(void *arg) {
         {
             winrec_t *topw = winrec_top();
             static winrec_t *s_last_top;
+            /* kayitlar geri donusumlu; kapanip yeni pencereye devredilmis
+             * bir adres eski top sanilmasin */
+            if (s_last_top && !winrec_alive(s_last_top)) s_last_top = 0;
             int sm_open = g_start_menu && !lv_obj_has_flag(g_start_menu, LV_OBJ_FLAG_HIDDEN);
             if (!sm_open && topw != s_last_top) {
                 s_last_top = topw;
