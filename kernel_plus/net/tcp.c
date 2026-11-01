@@ -54,6 +54,13 @@ static int tcp_alloc_conn(void) {
     return -1;
 }
 
+/* App tarafindan gelen conn_id dogrulamasi: tcp_* fonksiyonlari ASI API
+ * uzerinden dogrudan uygulama girdisi alir; sinir kontrolu olmadan diziye
+ * indekslemek cekirdek belleginde rastgele erisim demekti. */
+static inline bool tcp_id_ok(int conn_id) {
+    return conn_id >= 0 && conn_id < TCP_MAX_CONNECTIONS;
+}
+
 static uint16_t tcp_calc_checksum(const uint8_t *src_ip, const uint8_t *dst_ip,
                                   const uint8_t *tcp_segment, uint16_t tcp_len) {
     uint32_t sum = 0;
@@ -204,6 +211,7 @@ int tcp_accept(int listen_id) {
 }
 
 bool tcp_send(int conn_id, const uint8_t *data, uint16_t length) {
+    if (!tcp_id_ok(conn_id)) return false;
     tcp_connection_t *conn = &tcp_connections[conn_id];
     if (conn->state != TCP_STATE_ESTABLISHED) return false;
 
@@ -220,6 +228,7 @@ bool tcp_send(int conn_id, const uint8_t *data, uint16_t length) {
 }
 
 int tcp_receive(int conn_id, uint8_t *buf, uint16_t buf_size) {
+    if (!tcp_id_ok(conn_id)) return -1;
     tcp_connection_t *conn = &tcp_connections[conn_id];
     if (conn->state == TCP_STATE_CLOSED ||
         conn->state == TCP_STATE_TIME_WAIT) return -1;
@@ -252,6 +261,7 @@ int tcp_receive(int conn_id, uint8_t *buf, uint16_t buf_size) {
 }
 
 bool tcp_close(int conn_id) {
+    if (!tcp_id_ok(conn_id)) return false;
     tcp_connection_t *conn = &tcp_connections[conn_id];
 
     if (conn->state == TCP_STATE_LISTEN) {
@@ -283,6 +293,7 @@ bool tcp_close(int conn_id) {
 }
 
 int tcp_state(int conn_id) {
+    if (!tcp_id_ok(conn_id)) return -1;
     return tcp_connections[conn_id].state;
 }
 
