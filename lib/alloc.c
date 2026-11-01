@@ -22,6 +22,10 @@ static size_t    used_bytes = 0;
 
 void *kmalloc(size_t size) {
     if (size == 0) size = 1;
+    /* Yuvarlama tasmayi gizliyordu: SIZE_MAX'a yakin istek (size+15)&~15 ile
+     * kucuk sayiya donusup basarisizlik yerine kucuk blok dondururdu. Butun
+     * yiginden buyuk istek zaten karsilanamaz; bastan red. */
+    if (size > (size_t)HEAP_MAX) return 0;
     size = (size + 15) & ~(size_t)15;
 
     block_t **pp = &free_list;
