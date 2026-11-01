@@ -161,7 +161,18 @@ static int nvme_read(void *ctx, uint64_t lba, uint32_t count, void *buf) {
 static int nvme_write(void *ctx, uint64_t lba, uint32_t count, const void *buf) {
     (void)ctx; return nvme_transfer(lba, count, (void *)buf, 1);
 }
-static int nvme_flush(void *ctx) { (void)ctx; return 0; }
+/* Admin Flush (opcode 0x00): surucu kendi onebeleğini disaga yazar. Eski
+ * hali bos donuyordu; "flush tamam" derken disk hala yazmayi yutabilirdi. */
+static int nvme_flush(void *ctx) {
+    (void)ctx;
+    if (!g_ready) return -1;
+    uint32_t s[16];
+    static uint32_t s_flush_cid;
+    s_flush_cid = (s_flush_cid + 1) & 0xFFFF;
+    nvme_mk_sqe(s, 0x00, s_flush_cid);
+    s[1] = g_nsid;
+    return nvme_admin(s, 0);
+}
 
 static void nvme_register(void) {
     bdev_ops_t ops;
