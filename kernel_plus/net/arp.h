@@ -8,7 +8,10 @@
 #define ARP_REQUEST          1
 #define ARP_REPLY            2
 #define ARP_CACHE_SIZE       16
-#define ARP_CACHE_TIMEOUT    300
+/* ms cinsinden; sayac clock_ms() ile ayni saati kullanir. Eskiden bu
+ * 300 "tik" sayiliyordu ama sayaci hicbir yer artirmadigi icin kayitlar
+ * hicbir zaman asmi sayiliyordu. */
+#define ARP_CACHE_TIMEOUT    600000u
 
 typedef struct {
     uint8_t  ip[4];

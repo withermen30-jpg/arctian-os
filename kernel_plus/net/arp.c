@@ -6,7 +6,12 @@
 #include "clock.h"
 
 static arp_entry_t arp_cache[ARP_CACHE_SIZE];
-static uint32_t arp_ticks = 0;
+
+/* Zaman damgasi gercek saatten alinir; boylece onbellek kayitlari
+ * gercekten zaman asimina ugrar (router MAC'i degisse yenisi ogrenilir). */
+static inline uint32_t arp_now(void) {
+    return (uint32_t)clock_ms();
+}
 
 void arp_init(void) {
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
@@ -26,7 +31,7 @@ static void arp_cache_add(const uint8_t ip[4], const uint8_t mac[6]) {
             ip[0] == arp_cache[i].ip[0] && ip[1] == arp_cache[i].ip[1] &&
             ip[2] == arp_cache[i].ip[2] && ip[3] == arp_cache[i].ip[3]) {
             for (int j = 0; j < 6; j++) arp_cache[i].mac[j] = mac[j];
-            arp_cache[i].timestamp = arp_ticks;
+            arp_cache[i].timestamp = arp_now();
             return;
         }
         if (!arp_cache[i].valid || arp_cache[i].timestamp < oldest_time) {
@@ -37,7 +42,7 @@ static void arp_cache_add(const uint8_t ip[4], const uint8_t mac[6]) {
 
     for (int j = 0; j < 4; j++) arp_cache[oldest].ip[j] = ip[j];
     for (int j = 0; j < 6; j++) arp_cache[oldest].mac[j] = mac[j];
-    arp_cache[oldest].timestamp = arp_ticks;
+    arp_cache[oldest].timestamp = arp_now();
     arp_cache[oldest].valid = true;
 }
 
@@ -46,7 +51,7 @@ bool arp_resolve(const uint8_t ip[4], uint8_t mac_out[6]) {
         if (arp_cache[i].valid &&
             ip[0] == arp_cache[i].ip[0] && ip[1] == arp_cache[i].ip[1] &&
             ip[2] == arp_cache[i].ip[2] && ip[3] == arp_cache[i].ip[3]) {
-            if (arp_ticks - arp_cache[i].timestamp < ARP_CACHE_TIMEOUT) {
+            if (arp_now() - arp_cache[i].timestamp < ARP_CACHE_TIMEOUT) {
                 for (int j = 0; j < 6; j++) mac_out[j] = arp_cache[i].mac[j];
                 return true;
             }
