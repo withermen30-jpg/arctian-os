@@ -303,8 +303,12 @@ static int png_decode_impl(const uint8_t *data, uint32_t len,
         uint32_t clen = rd32(data + pos);
         const unsigned char *ctype = data + pos + 4;
         const unsigned char *cdata = data + pos + 8;
-        if (pos + 12 + clen > len) break;
+        /* Toplama degil, cikarma biciminde denetle: dev bir clen,
+         * "pos + 12 + clen" ifadesini 32 bitta tasiyip denetimi atlatiyor
+         * ve tamponun bitisindan okunuyordu. */
+        if (pos + 12 > len || clen > len - pos - 12) break;
         if (ctype[0] == 'I' && ctype[1] == 'H' && ctype[2] == 'D' && ctype[3] == 'R') {
+            if (clen < 13) break;           /* yarim IHDR: alanlar okunmaz */
             width = rd32(cdata);
             height = rd32(cdata + 4);
             bitdepth = cdata[8];
