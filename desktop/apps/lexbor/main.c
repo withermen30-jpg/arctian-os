@@ -244,67 +244,98 @@ static void resolve_url(const char *href, char *out, int cap) {
     cat(out, cap, href);
 }
 
+/* Yuruyus eskiden her dugum derinliginde kendini cagiriyordu; ~65 bin ic
+ * ice div uygulamanin yiginini tasiriyordu. Simdi ayrik bir yiginla
+ * dongo halinde yurulur; 4096'dan derin sayfada derin kalan kirpilir. */
+#define WALK_MAX 4096
+static lxb_dom_node_t *g_walk_st[WALK_MAX];
+static lxb_dom_node_t *const WALK_MARK = (lxb_dom_node_t *)1;
+
 static void walk(lxb_dom_node_t *node) {
-    for (; node; node = node->next) {
-        if (node->type == LXB_DOM_NODE_TYPE_TEXT) {
-            lxb_dom_character_data_t *cd = lxb_dom_interface_character_data(node);
-            if (cd && cd->data.data && cd->data.length)
-                run_add((const char *)cd->data.data, (int)cd->data.length);
-            continue;
-        }
-        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
-
-        char tag[32];
-        tag_lower(node, tag, sizeof(tag));
-
-        if (tag_is(tag, "script")) { collect_script(node); continue; }
-        if (tag_skip(tag)) continue;
-
-        if (tag_is(tag, "title")) {
-            size_t len = 0;
-            const lxb_char_t *t = lxb_dom_node_text_content(node, &len);
-            if (t && len) {
-                int k = 0;
-                for (size_t i = 0; i < len && k < (int)sizeof(g_title) - 1; i++)
-                    g_title[k++] = (char)t[i];
-                g_title[k] = 0;
-            }
-            continue;
-        }
-
-        if (tag_is(tag, "a")) {
-            lxb_dom_element_t *el = lxb_dom_interface_element(node);
-            size_t hl = 0;
-            const lxb_char_t *hv = lxb_dom_element_get_attribute(el, (const lxb_char_t *)"href", 4, &hl);
-            size_t tl = 0;
-            const lxb_char_t *tv = lxb_dom_node_text_content(node, &tl);
-            if (hl > 0 && hv && tv && tl) {
-                char href[HREF_MAX], abs[HREF_MAX], txt[TEXT_MAX];
-                int i;
-                for (i = 0; i < (int)hl && i < HREF_MAX - 1; i++) href[i] = (char)hv[i]; href[i] = 0;
-                for (i = 0; i < (int)tl && i < TEXT_MAX - 1; i++) txt[i] = (char)tv[i]; txt[i] = 0;
-                resolve_url(href, abs, HREF_MAX);
-                run_flush();
-                add_block(BLK_LINK, txt, abs);
+    int sp = 0;
+    for (;;) {
+        for (; node;) {
+            if (node->type == LXB_DOM_NODE_TYPE_TEXT) {
+                lxb_dom_character_data_t *cd = lxb_dom_interface_character_data(node);
+                if (cd && cd->data.data && cd->data.length)
+                    run_add((const char *)cd->data.data, (int)cd->data.length);
+                node = node->next;
                 continue;
             }
-        }
+            if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) { node = node->next; continue; }
 
-        if (tag_is(tag, "img")) {
-            run_flush();
-            add_block(BLK_TEXT, "[resim]", 0);
-            continue;
-        }
-        if (tag_is(tag, "br")) { run_flush(); continue; }
-        if (tag_is(tag, "hr")) {
-            run_flush();
-            add_block(BLK_TEXT, "-----", 0);
-            continue;
-        }
+            char tag[32];
+            tag_lower(node, tag, sizeof(tag));
 
-        if (tag_block(tag)) run_flush();
-        walk(node->first_child);
-        if (tag_block(tag)) run_flush();
+            if (tag_is(tag, "script")) { collect_script(node); node = node->next; continue; }
+            if (tag_skip(tag)) { node = node->next; continue; }
+
+            if (tag_is(tag, "title")) {
+                size_t len = 0;
+                const lxb_char_t *t = lxb_dom_node_text_content(node, &len);
+                if (t && len) {
+                    int k = 0;
+                    for (size_t i = 0; i < len && k < (int)sizeof(g_title) - 1; i++)
+                        g_title[k++] = (char)t[i];
+                    g_title[k] = 0;
+                }
+                node = node->next;
+                continue;
+            }
+
+            if (tag_is(tag, "a")) {
+                lxb_dom_element_t *el = lxb_dom_interface_element(node);
+                size_t hl = 0;
+                const lxb_char_t *hv = lxb_dom_element_get_attribute(el, (const lxb_char_t *)"href", 4, &hl);
+                size_t tl = 0;
+                const lxb_char_t *tv = lxb_dom_node_text_content(node, &tl);
+                if (hl > 0 && hv && tv && tl) {
+                    char href[HREF_MAX], abs[HREF_MAX], txt[TEXT_MAX];
+                    int i;
+                    for (i = 0; i < (int)hl && i < HREF_MAX - 1; i++) href[i] = (char)hv[i]; href[i] = 0;
+                    for (i = 0; i < (int)tl && i < TEXT_MAX - 1; i++) txt[i] = (char)tv[i]; txt[i] = 0;
+                    resolve_url(href, abs, HREF_MAX);
+                    run_flush();
+                    add_block(BLK_LINK, txt, abs);
+                    node = node->next;
+                    continue;
+                }
+            }
+
+            if (tag_is(tag, "img")) {
+                run_flush();
+                add_block(BLK_TEXT, "[resim]", 0);
+                node = node->next;
+                continue;
+            }
+            if (tag_is(tag, "br")) { run_flush(); node = node->next; continue; }
+            if (tag_is(tag, "hr")) {
+                run_flush();
+                add_block(BLK_TEXT, "-----", 0);
+                node = node->next;
+                continue;
+            }
+
+            if (!node->first_child) {
+                if (tag_block(tag)) run_flush();
+                node = node->next;
+                continue;
+            }
+            if (tag_block(tag)) run_flush();
+            if (sp < WALK_MAX) {
+                if (tag_block(tag)) {
+                    if (sp < WALK_MAX - 1) g_walk_st[sp++] = WALK_MARK;
+                }
+                g_walk_st[sp++] = node->next;
+                node = node->first_child;
+            } else {
+                /* yigin doldu: bu daldan vazgec, kardeslere devam et */
+                node = node->next;
+            }
+        }
+        if (sp == 0) break;
+        node = g_walk_st[--sp];
+        if (node == WALK_MARK) { run_flush(); continue; }
     }
 }
 
