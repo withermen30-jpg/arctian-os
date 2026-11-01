@@ -346,8 +346,11 @@ void afs_mount(void) {
         afs_format();
         return;
     }
-    /* Header CRC dogrula (eski disklerde flags=0 -> dogrulama atlanir). */
-    if (H.flags != 0 && hdr_crc() != H.flags) {
+    /* Header CRC dogrula. flags==0 kacagi eskiden buradaydi; surum zaten
+     * AFS_VERSION'a esit olmak zorunda oldugu icin o haliyle yalniz
+     * bozuk/sifirlanmis tabloyu sessizce kabul ediyordu (gercek CRC'si 0
+     * cikan disk zaten 0==0 ile gecer). */
+    if (hdr_crc() != H.flags) {
         if (afs_disk_is_encrypted()) return;
         afs_format();
         return;
