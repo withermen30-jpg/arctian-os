@@ -466,12 +466,15 @@ int afs_write_handle(void *h, const void *data, uint32_t size) {
     int i = (int)(intptr_t)h - 1;
     if (i < 0 || i >= (int)H.max_files || !H.files[i].used) return -1;
     if (!perm_ok(H.files[i].uid, H.files[i].gid, H.files[i].mode, AFS_W)) return -1;
-    uint32_t secs = (size + 511) / 512;
+    uint64_t secs = ((uint64_t)size + 511) / 512;
     if (secs == 0) secs = 1;
-    if (H.files[i].lba + secs > H.capacity) return -1;
-    if (storage_write(H.files[i].lba, secs, data) != 0) return -1;
+    /* LBA ve kapasite 32 bitlik alanlarda duruyor (disk bicimi); 32 bitlik
+     * toplamada tasma olmasin, boyut siniri asilsin. */
+    if ((uint64_t)H.files[i].lba + secs > (uint64_t)H.capacity) return -1;
+    if (storage_write(H.files[i].lba, (uint32_t)secs, data) != 0) return -1;
     H.files[i].size = size;
-    if (H.files[i].lba + secs > H.data_next) H.data_next = H.files[i].lba + secs;
+    if ((uint64_t)H.files[i].lba + secs > (uint64_t)H.data_next)
+        H.data_next = (uint32_t)((uint64_t)H.files[i].lba + secs);
     hdr_commit();
     return 0;
 }
