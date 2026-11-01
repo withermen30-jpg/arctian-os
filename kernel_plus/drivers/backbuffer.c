@@ -96,12 +96,12 @@ uint32_t backbuffer_get_pixel(int x, int y) {
 void backbuffer_fill_rect(int x, int y, int w, int h, uint32_t color) {
     if (!active) return;
 
-    /* Clip to screen bounds */
+    /* Clip to screen bounds (x+w tasma tasina getirmeyen sekille) */
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x >= bb_width || y >= bb_height) return;
-    if (x + w > bb_width)  w = bb_width - x;
-    if (y + h > bb_height) h = bb_height - y;
+    if (w > bb_width - x)  w = bb_width - x;
+    if (h > bb_height - y) h = bb_height - y;
     if (w <= 0 || h <= 0) return;
 
     uint64_t c64 = ((uint64_t)color << 32) | color;
@@ -150,10 +150,14 @@ void backbuffer_blit_rect(int x, int y, int w, int h) {
     int fb_pitch_dwords = fb->pitch / 4;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
-    if (x + w > bb_width)  w = bb_width - x;
-    if (y + h > bb_height) h = bb_height - y;
-    if (x + w > fb->width)  w = fb->width - x;
-    if (y + h > fb->height) h = fb->height - y;
+    /* Tasma guvenli kirpma: x+w ifadesi INT_MAX yakininda tasiyip negatif
+     * olur ve sinir kontrolu hicbir sey gormeden gecerdi. Cikarma iceren
+     * sekil her girdide dogru kalir. */
+    if (x >= bb_width || y >= bb_height) return;
+    if (w > bb_width - x)  w = bb_width - x;
+    if (h > bb_height - y) h = bb_height - y;
+    if (w > fb->width - x)  w = fb->width - x;
+    if (h > fb->height - y) h = fb->height - y;
     if (w <= 0 || h <= 0) return;
 
     for (int row = y; row < y + h; row++) {
@@ -175,10 +179,17 @@ int backbuffer_height(void) {
 }
 
 void backbuffer_resize(int w, int h) {
-    if (w > BB_MAX_WIDTH)  w = BB_MAX_WIDTH;
-    if (h > BB_MAX_HEIGHT) h = BB_MAX_HEIGHT;
     if (w < 1) w = 1;
     if (h < 1) h = 1;
+    if (w > BB_MAX_WIDTH)  w = BB_MAX_WIDTH;
+    if (h > BB_MAX_HEIGHT) h = BB_MAX_HEIGHT;
+    /* LFB'dan buyuk arkatampon gercek ekrandan tasar; gercek mod
+     * boyutuna da kenetle. */
+    framebuffer_t *fb = vesa_get_framebuffer();
+    if (fb && fb->enabled && fb->address) {
+        if (fb->width > 0 && w > fb->width)  w = fb->width;
+        if (fb->height > 0 && h > fb->height) h = fb->height;
+    }
     bb_width = w;
     bb_height = h;
 }
