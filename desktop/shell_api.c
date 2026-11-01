@@ -65,9 +65,10 @@ int arctian_shell_trash(const char *path) {
         if (*p == '/' || *p == '\\') base = p + 1;
     if (!base[0]) return -1;
 
-    /* boyut siniri: tampon tek seferde okunur */
+    /* boyut siniri: tampon tek seferde okunur; dizinler kopyalanamaz,
+     * cagiran taraf kendi yoluna dussun (dosya yoneticisi dogrudan siler). */
     asi_stat_t st;
-    if (fs->stat(path, &st) != 0 || st.size > TRASH_BUF_SZ) return -2;
+    if (fs->stat(path, &st) != 0 || st.is_dir || st.size > TRASH_BUF_SZ) return -2;
 
     /* ad catismasi: "ad (2).ext" */
     char cand[80];
@@ -108,7 +109,19 @@ int arctian_shell_trash(const char *path) {
     if (!h) { g_asi->mem->free(buf); return -1; }
     int w = fs->write(h, buf, n);
     g_asi->mem->free(buf);
-    if (w != 0) { fs->remove(cand); return -1; }
+    if (w != 0) {
+        /* yarim kalan kopyayi temizle; tam yoldan silelim, cand yalinz
+         * ad tasir ve CWD gecerli alana gore cozulup baska bir dosyayi
+         * silebilirdi. */
+        char full[160];
+        int o = 0;
+        const char *d = TRASH_DIR "/";
+        while (*d && o < (int)sizeof(full) - 1) full[o++] = *d++;
+        for (int i = 0; cand[i] && o < (int)sizeof(full) - 1; i++) full[o++] = cand[i];
+        full[o] = 0;
+        fs->remove(full);
+        return -1;
+    }
     return (fs->remove(path) == 0) ? 0 : -1;
 }
 

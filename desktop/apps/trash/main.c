@@ -17,6 +17,7 @@ static int       g_n;
 static int       g_sel;
 
 static uint8_t  *g_buf;
+static uint32_t  g_buf_cap;
 
 static void scpy(char *d, int cap, const char *s) {
     int i = 0;
@@ -122,19 +123,33 @@ static void restore_cb(lv_event_t *e) {
     (void)e;
     if (g_sel < 0 || g_sel >= g_n) { set_status("Once bir oge secin"); return; }
     if (!A->fs || !A->fs->read_path || !A->fs->create_in || !A->fs->write || !A->fs->remove) return;
-    if (!g_buf) {
-        g_buf = (uint8_t *)A->mem->alloc(CP_BUF);
-        if (!g_buf) { set_status("Bellek yetersiz"); return; }
-    }
 
     char src[128];
     trash_path(src, (int)sizeof(src), g_names[g_sel]);
-    uint32_t r = A->fs->read_path(src, g_buf, CP_BUF);
+
+    /* Evvela boyutu ogren: tampona sigmayan dosyasi kirpik kopyalayıp
+     * kaynagi silmek kalici veri kaybi demekti. Tampon yetmezse dogru
+     * boyutta yenisini ayir; onu da bulamazsak hicbir seye dokunmayiz. */
+    asi_stat_t st;
+    if (!A->fs->stat || A->fs->stat(src, &st) != 0 || st.is_dir) {
+        set_status("Oge bulunamadi");
+        return;
+    }
+    uint32_t size = st.size;
+    if (g_buf_cap < size) {
+        uint8_t *nb = (uint8_t *)A->mem->alloc(size);
+        if (!nb) { set_status("Bellek yetersiz; kaynak silinmedi"); return; }
+        if (g_buf) A->mem->free(g_buf);
+        g_buf = nb;
+        g_buf_cap = size;
+    }
+    uint32_t r = A->fs->read_path(src, g_buf, g_buf_cap);
+    if (r != size) { set_status("Okunamadi; kaynak silinmedi"); return; }
 
     if (A->fs->mkdir) A->fs->mkdir("C:/belgeler");
     void *fh = A->fs->create_in("C:/belgeler", g_names[g_sel], 0);
     if (!fh) { set_status("Geri yuklenemedi"); return; }
-    A->fs->write(fh, g_buf, r);
+    if (A->fs->write(fh, g_buf, r) != 0) { set_status("Yazma hatasi; kaynak silinmedi"); return; }
     A->fs->remove(src);
     set_status("Geri yuklendi: C:/belgeler");
     refresh();
@@ -179,6 +194,7 @@ static void app_del_cb(lv_event_t *e) {
     (void)e;
     if (g_buf && A && A->mem && A->mem->free) { A->mem->free(g_buf); }
     g_buf = 0;
+    g_buf_cap = 0;
     g_list = 0; g_status = 0; g_empty = 0;
     for (int i = 0; i < CP_MAX; i++) g_rows[i] = 0;
     g_n = 0; g_sel = -1;
