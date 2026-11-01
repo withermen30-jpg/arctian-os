@@ -67,6 +67,15 @@ static int starts_with(const char *s, const char *p) {
     return 1;
 }
 
+/* Komut beyaz listesi eskiden sadece on ek bakuyordu; "lsmeh" "ls" kuralina
+ * uyuyordu. Burada eslesmenin ardindan bosluk veya satir sonu gelmeli. */
+static int word_is(const char *s, const char *p) {
+    if (!starts_with(s, p)) return 0;
+    int i = 0; while (p[i]) i++;
+    char c = s[i];
+    return (c == 0 || c == ' ' || c == '\t' || c == '\n' || c == '\r');
+}
+
 static int h_now(int *y, int *mo, int *d, int *hh, int *mi, int *ss);
 static int h_list_selected(wolf_id id);
 static void list_row_cb(lv_event_t *e);
@@ -633,13 +642,13 @@ static int h_exec(const char *cmd, char *out, int cap) {
                               "ls", "ip", "apps", "uptime", 0 };
     int okcmd = 0;
     for (int i = 0; allowed[i]; i++)
-        if (starts_with(cmd, allowed[i])) { okcmd = 1; break; }
+        if (word_is(cmd, allowed[i])) { okcmd = 1; break; }
     if (!okcmd) {
         bin_copy(out, cap, "izin yok");
         return -1;
     }
     /* exec'i kabuga yonlendirmek yerine dogrudan yanitla (kabuk yok). */
-    if (starts_with(cmd, "date")) {
+    if (word_is(cmd, "date")) {
         int y, mo, d, hh, mi, ss;
         if (h_now(&y, &mo, &d, &hh, &mi, &ss) == 0) {
             char b[40];
@@ -662,15 +671,15 @@ static int h_exec(const char *cmd, char *out, int cap) {
             return 0;
         }
     }
-    if (starts_with(cmd, "whoami")) {
+    if (word_is(cmd, "whoami")) {
         bin_copy(out, cap, arctian_auth_current());
         return 0;
     }
-    if (starts_with(cmd, "pwd")) {
+    if (word_is(cmd, "pwd")) {
         bin_copy(out, cap, "C:/");
         return 0;
     }
-    if (starts_with(cmd, "sysinfo")) {
+    if (word_is(cmd, "sysinfo")) {
         bin_copy(out, cap, "Arctian 0.7 WLF runtime");
         return 0;
     }
