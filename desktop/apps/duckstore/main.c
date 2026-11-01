@@ -242,15 +242,21 @@ static lv_obj_t *ds_svg_icon(lv_obj_t *parent, const char *svg, int size) {
             return cc;
         }
     }
+    /* Eskiden onebek dolunca tampon ayrilip sahiplenilmiyordu; canvas
+     * silindiginde buffer havada kaliyordu. Artik onebek doluyken hic
+     * ayirmiyoruz, cagiran renkli kutuya duser. Ayrica render hatasinda
+     * de tampon birakiliyor. */
+    if (g_icon_cache_n >= 96) return 0;
     uint32_t *buf = (uint32_t *)s_asi->mem->alloc((size_t)size * size * 4u);
     if (!buf) return 0;
-    if (svg_render(svg, size, size, buf) != 0) return 0;
-    if (g_icon_cache_n < 96) {
-        g_icon_cache[g_icon_cache_n].hash = h;
-        g_icon_cache[g_icon_cache_n].size = size;
-        g_icon_cache[g_icon_cache_n].buf = buf;
-        g_icon_cache_n++;
+    if (svg_render(svg, size, size, buf) != 0) {
+        s_asi->mem->free(buf);
+        return 0;
     }
+    g_icon_cache[g_icon_cache_n].hash = h;
+    g_icon_cache[g_icon_cache_n].size = size;
+    g_icon_cache[g_icon_cache_n].buf = buf;
+    g_icon_cache_n++;
     lv_obj_t *c = lv_canvas_create(parent);
     lv_obj_remove_style_all(c);
     lv_canvas_set_buffer(c, buf, size, size, LV_COLOR_FORMAT_ARGB8888);
