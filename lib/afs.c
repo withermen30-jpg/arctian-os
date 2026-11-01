@@ -384,9 +384,15 @@ void *afs_create_handle(const char *name) {
     }
     if (first_free < 0) return 0;
     uint32_t i = (uint32_t)first_free;
+    /* data_next create aninda ilerletilir: onceki haliyle lba ayrilip
+     * data_next yalniz ilk yazmayla yukseliyordu; hic yazilmadan ikinci bir
+     * dosya olusturulursa iki dosya ayni LBA'yi paylasip verileri ust uste
+     * biniyordu. Bos dosya en az bir sektor rezerve eder. */
+    if ((uint64_t)H.data_next + 1u > H.capacity) return 0;
     H.files[i].used = 1;
     H.files[i].size = 0;
     H.files[i].lba = H.data_next;
+    H.data_next++;
     set_owner(&H.files[i], afs_is_dir(name));
     cpy(H.files[i].name, name);
     H.count++;
