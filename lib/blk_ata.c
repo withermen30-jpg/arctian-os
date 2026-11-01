@@ -1,4 +1,4 @@
-/* ATA (IDE / legacy SATA) blok cihazi. LBA28, bus-master DMA + PIO yedegi. */
+/* ATA (IDE / legacy SATA) blok cihazi. LBA28/LBA48, bus-master DMA + PIO yedegi. */
 #include "blockdev.h"
 #include "kernel.h"
 #include "memory_map.h"
@@ -30,6 +30,7 @@ typedef struct {
     uint16_t bm;
     uint8_t  drive;
     uint8_t  dma;
+    uint8_t  lba48;   /* surucu 48-bit LBA destekliyor (identify word 83/86) */
 } ata_ctx_t;
 
 static ata_ctx_t s_ctx[4];
@@ -63,17 +64,31 @@ static int wait(uint16_t io, int drq) {
 
 static int ata_pio(void *ctx, uint64_t lba, uint32_t count, void *buf, int write) {
     ata_ctx_t *c = (ata_ctx_t *)ctx;
-    if (lba > 0x0FFFFFFFu) return -1;
+    if (!c->lba48 && lba > 0x0FFFFFFFu) return -1;
     uint8_t *p = (uint8_t *)buf;
     for (; count; count--, lba++, p += 512) {
         if (wait(c->io, 0) != 0) return -1;
-        outb(c->io + 6, (uint8_t)(0xE0 | (c->drive << 4) | ((lba >> 24) & 0x0F)));
-        dly(c->io);
-        outb(c->io + 2, 1);
-        outb(c->io + 3, (uint8_t)lba);
-        outb(c->io + 4, (uint8_t)(lba >> 8));
-        outb(c->io + 5, (uint8_t)(lba >> 16));
-        outb(c->io + 7, write ? 0x30 : 0x20);
+        int ext = c->lba48 && lba >= 0x10000000ull;
+        if (ext) {
+            /* LBA48: baytlar once yuksek sonra dusuk grup halinde yazilir. */
+            outb(c->io + 6, (uint8_t)(0xE0 | (c->drive << 4)));
+            dly(c->io);
+            outb(c->io + 2, 0); outb(c->io + 3, (uint8_t)(lba >> 24));
+            outb(c->io + 4, (uint8_t)(lba >> 32)); outb(c->io + 5, (uint8_t)(lba >> 40));
+            outb(c->io + 2, 1); outb(c->io + 3, (uint8_t)lba);
+            outb(c->io + 4, (uint8_t)(lba >> 8)); outb(c->io + 5, (uint8_t)(lba >> 16));
+            outb(c->io + 6, (uint8_t)(0xE0 | (c->drive << 4) | ((lba >> 24) & 0x0F)));
+            dly(c->io);
+            outb(c->io + 7, write ? 0x34 : 0x24);
+        } else {
+            outb(c->io + 6, (uint8_t)(0xE0 | (c->drive << 4) | ((lba >> 24) & 0x0F)));
+            dly(c->io);
+            outb(c->io + 2, 1);
+            outb(c->io + 3, (uint8_t)lba);
+            outb(c->io + 4, (uint8_t)(lba >> 8));
+            outb(c->io + 5, (uint8_t)(lba >> 16));
+            outb(c->io + 7, write ? 0x30 : 0x20);
+        }
         if (wait(c->io, 1) != 0) return -1;
         uint16_t *w = (uint16_t *)p;
         if (write) {
@@ -107,10 +122,12 @@ static void ata_find_bmdma(void) {
     }
 }
 
-static int ata_dma_one(ata_ctx_t *c, uint32_t lba, uint32_t count, int write) {
+static int ata_dma_one(ata_ctx_t *c, uint64_t lba64, uint32_t count, int write) {
     uint16_t io = c->io;
     uint16_t bm = c->bm;
     uint32_t bytes = count * 512u;
+    uint32_t lba = (uint32_t)lba64;
+    int ext = c->lba48 && lba64 >= 0x10000000ull;
 
     if (wait(io, 0) != 0) return -1;
 
@@ -122,13 +139,29 @@ static int ata_dma_one(ata_ctx_t *c, uint32_t lba, uint32_t count, int write) {
     outl(bm + BM_PRDT, (uint32_t)(uintptr_t)s_prdt);
     outb(bm + BM_CMD, (uint8_t)(write ? 0x00 : 0x08));
 
-    outb(io + 6, (uint8_t)(0xE0 | (c->drive << 4) | ((lba >> 24) & 0x0F)));
-    dly(io);
-    outb(io + 2, (uint8_t)(count & 0xFFu));
-    outb(io + 3, (uint8_t)lba);
-    outb(io + 4, (uint8_t)(lba >> 8));
-    outb(io + 5, (uint8_t)(lba >> 16));
-    outb(io + 7, write ? 0xCA : 0xC8);
+    if (ext) {
+        outb(io + 6, (uint8_t)(0xE0 | (c->drive << 4)));
+        dly(io);
+        outb(io + 2, (uint8_t)(count >> 8));
+        outb(io + 3, (uint8_t)(lba64 >> 24));
+        outb(io + 4, (uint8_t)(lba64 >> 32));
+        outb(io + 5, (uint8_t)(lba64 >> 40));
+        outb(io + 2, (uint8_t)count);
+        outb(io + 3, (uint8_t)lba64);
+        outb(io + 4, (uint8_t)(lba64 >> 8));
+        outb(io + 5, (uint8_t)(lba64 >> 16));
+        outb(io + 6, (uint8_t)(0xE0 | (c->drive << 4) | ((lba64 >> 24) & 0x0F)));
+        dly(io);
+        outb(io + 7, write ? 0xC4 : 0xC5);
+    } else {
+        outb(io + 6, (uint8_t)(0xE0 | (c->drive << 4) | ((lba >> 24) & 0x0F)));
+        dly(io);
+        outb(io + 2, (uint8_t)(count & 0xFFu));
+        outb(io + 3, (uint8_t)lba);
+        outb(io + 4, (uint8_t)(lba >> 8));
+        outb(io + 5, (uint8_t)(lba >> 16));
+        outb(io + 7, write ? 0xCA : 0xC8);
+    }
     outb(bm + BM_CMD, (uint8_t)((write ? 0x00 : 0x08) | 0x01));
 
     int rc = -1;
@@ -147,7 +180,8 @@ static int ata_dma_one(ata_ctx_t *c, uint32_t lba, uint32_t count, int write) {
 
 static int ata_dma(void *ctx, uint64_t lba, uint32_t count, void *buf, int write) {
     ata_ctx_t *c = (ata_ctx_t *)ctx;
-    if (!s_dma_on || !c->bm || lba > 0x0FFFFFFFu) return -1;
+    if (!s_dma_on || !c->bm) return -1;
+    if (lba > 0x0FFFFFFFu && !c->lba48) return -1;
     uint8_t *p = (uint8_t *)buf;
     while (count) {
         uint32_t chunk = count > ATA_DMA_MAX ? ATA_DMA_MAX : count;
@@ -200,7 +234,8 @@ static int ata_flush(void *ctx) {
     return wait(c->io, 0);
 }
 
-static int ata_identify(uint16_t io, uint8_t drive, uint64_t *sectors_out, int *dma_out) {
+static int ata_identify(uint16_t io, uint8_t drive, uint64_t *sectors_out,
+                        int *dma_out, int *lba48_out) {
     outb(io + 6, (uint8_t)(0xA0 | (drive << 4)));
     for (int i = 0; i < 4; i++) (void)inb(io + 7);
     outb(io + 2, 0); outb(io + 3, 0); outb(io + 4, 0); outb(io + 5, 0);
@@ -216,6 +251,17 @@ static int ata_identify(uint16_t io, uint8_t drive, uint64_t *sectors_out, int *
     uint32_t lba28 = ((uint32_t)id[61] << 16) | id[60];
     *sectors_out = lba28;
     if (dma_out) *dma_out = (id[49] & 0x0100) ? 1 : 0;
+    /* LBA48: word 83 bit10 destek, word 86 bit10 kelimeler 100-103 gecerli
+     * demektir. 128 GB ustu disklerde word 60/61 tavan degeri gosterir;
+     * okunmadiginda disk sessizce 128 GB'a kirpilirdi. */
+    int l48 = 0;
+    if ((id[83] & 0x0400) && (id[86] & 0x0400)) {
+        l48 = 1;
+        uint64_t total48 = (uint64_t)id[100] | ((uint64_t)id[101] << 16) |
+                           ((uint64_t)id[102] << 32) | ((uint64_t)id[103] << 48);
+        if (total48 > *sectors_out) *sectors_out = total48;
+    }
+    if (lba48_out) *lba48_out = l48;
     return 1;
 }
 
@@ -225,8 +271,8 @@ void blk_ata_scan(void) {
     for (int ch = 0; ch < 2; ch++) {
         for (int dr = 0; dr < 2; dr++) {
             uint64_t secs = 0;
-            int dmacap = 0;
-            if (!ata_identify(ATA_PORTS[ch], (uint8_t)dr, &secs, &dmacap)) continue;
+            int dmacap = 0, l48 = 0;
+            if (!ata_identify(ATA_PORTS[ch], (uint8_t)dr, &secs, &dmacap, &l48)) continue;
             if (secs == 0) continue;
             if (s_ctxn >= 4) return;
 
@@ -235,6 +281,7 @@ void blk_ata_scan(void) {
             c->bm = s_bm_base[ch];
             c->drive = (uint8_t)dr;
             c->dma = (uint8_t)(dmacap && s_bm_base[ch] ? 1 : 0);
+            c->lba48 = (uint8_t)(l48 ? 1 : 0);
 
             bdev_ops_t ops;
             for (int i = 0; i < 24; i++) ops.name[i] = 0;
