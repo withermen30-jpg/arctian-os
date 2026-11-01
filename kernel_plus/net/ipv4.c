@@ -166,6 +166,15 @@ bool ipv4_receive(const uint8_t *packet, uint16_t length,
     uint16_t hdr_len = (iph[0] & 0x0F) * 4;
     if (hdr_len < 20) return false;
 
+    /* Baslik saglama toplami: gonderenin dogrulugunun tek kaniti.
+     * Gecerli baslikta hesap her zaman 0 cikar. */
+    if (ipv4_checksum(iph, hdr_len) != 0) return false;
+
+    /* Parcali paketleri birlestiremiyoruz; yarim payload'u ust katmana
+     * vermek TCP/UDP'yi bozacagindan parcaliyi oldugu yerde dusuruyoruz. */
+    uint16_t frag = ((uint16_t)iph[6] << 8) | iph[7];
+    if ((frag & 0x3FFF) != 0) return false;
+
     bool for_us = false;
     for (int i = 0; i < 4; i++) {
         if (iph[16 + i] != ipv4_config.src_ip[i]) break;
@@ -179,6 +188,26 @@ bool ipv4_receive(const uint8_t *packet, uint16_t length,
     if (payload_len_out) *payload_len_out = total_len - hdr_len;
 
     return true;
+}
+
+/* TCP/UDP saglama toplamini pseudo-header uzerinden dogrular. Gonderici
+ * (tcp_calc_checksum / udp_send) ayni matematigi kullaniyor; gecerli
+ * pakette buradaki hesap 0 doner. UDP'de 0 alanasi "hesaplanmadi" demek
+ * ve IPv4'te yasal, o durumda geciriyoruz. */
+static bool l4_checksum_ok(const uint8_t *iph, const uint8_t *l4,
+                           uint16_t l4_len, uint8_t proto) {
+    if (proto == IPV4_PROTO_UDP && l4[6] == 0 && l4[7] == 0) return true;
+
+    uint32_t sum = 0;
+    for (int i = 0; i < 4; i++) sum += (uint32_t)iph[12 + i] << ((i & 1) ? 0 : 8);
+    for (int i = 0; i < 4; i++) sum += (uint32_t)iph[16 + i] << ((i & 1) ? 0 : 8);
+    sum += proto;
+    sum += l4_len;
+    for (uint16_t i = 0; i + 1 < l4_len; i += 2)
+        sum += ((uint32_t)l4[i] << 8) | l4[i + 1];
+    if (l4_len & 1) sum += (uint32_t)l4[l4_len - 1] << 8;
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return (uint16_t)~sum == 0;
 }
 
 /* NIC'ten bekleyen tum kareleri bosaltir ve katmanlara dagitir.
@@ -214,6 +243,15 @@ void ipv4_poll(void) {
         if ((protocol == IPV4_PROTO_TCP || protocol == IPV4_PROTO_UDP) && payload_len >= 4)
             fw_dport = ((uint16_t)payload[2] << 8) | payload[3];
         if (!firewall_inbound(protocol, src_ip, fw_dport)) continue;
+
+        if (protocol == IPV4_PROTO_TCP || protocol == IPV4_PROTO_UDP) {
+            if (payload_len < 8) continue;
+            if (!l4_checksum_ok(rx_buf + 14, payload, payload_len, protocol)) {
+                serial_printf("[ip] saglama toplami bozuk %s paketi dusuruldu\n",
+                              protocol == IPV4_PROTO_TCP ? "tcp" : "udp");
+                continue;
+            }
+        }
 
         if (protocol == IPV4_PROTO_TCP)
             tcp_receive_packet(src_ip, payload, payload_len);
