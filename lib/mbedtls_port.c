@@ -175,16 +175,32 @@ int printf(const char *fmt, ...) { (void)fmt; return 0; }
 /* ---------------- bellek (buffer alloc init oncesi kullanilir) ---------------- */
 
 void *calloc(size_t nmemb, size_t size) {
+    if (size != 0 && nmemb > (size_t)-1 / size) return 0; /* carpma tasmasi */
     size_t total = nmemb * size;
     void *p = kmalloc(total);
     if (p) memset(p, 0, total);
     return p;
 }
 
-void free(void *p) { (void)p; }
+/* Eskiden free() hicbir sey yapmiyordu ve realloc() eski icerigi
+ * kopyalamadan pointer'i dusuruyordu: her TLS el sikismasi kalici yigin
+ * sizdiriyor, buyumeli tamponlar ise iceriksiz kaliyordu. Artik dogrudan
+ * kfree/ksize uzerinden calisir. */
+void free(void *p) { kfree(p); }
 
 void *malloc(size_t size) { return kmalloc(size); }
-void *realloc(void *p, size_t size) { (void)p; return kmalloc(size); }
+
+void *realloc(void *p, size_t size) {
+    if (!p) return kmalloc(size);
+    if (size == 0) { kfree(p); return 0; }
+    void *np = kmalloc(size);
+    if (!np) return 0;
+    size_t old = ksize(p);
+    size_t n = old < size ? old : size;
+    memcpy(np, p, n);
+    kfree(p);
+    return np;
+}
 
 void exit(int code) { (void)code; for (;;) __asm__ volatile("hlt"); }
 void abort(void) { for (;;) __asm__ volatile("hlt"); }

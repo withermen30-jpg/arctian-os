@@ -82,6 +82,13 @@ void kfree(void *ptr) {
     }
 }
 
+size_t ksize(void *ptr) {
+    if (!ptr) return 0;
+    block_t *b = (block_t *)((char *)ptr - BLK_HDR);
+    if (b->magic != BLK_MAGIC) return 0;
+    return (size_t)b->size;
+}
+
 size_t kmalloc_used(void) {
     return used_bytes;
 }
