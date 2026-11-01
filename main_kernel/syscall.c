@@ -9,6 +9,9 @@
 extern void isr_stub_128(void);
 
 static void *g_fds[16];
+static uint32_t g_fd_off[16];   /* okuma ofseti, fd basiyla: ofset olmazsa
+                                 * donguyla okuyan ring3 uygulamasi EOF
+                                 * hic goremez, ayni baytlari sayardi */
 static arctian_cap_check_fn s_cap_check = 0;
 static arctian_subject_fn   s_subject_fn = 0;
 
@@ -86,6 +89,7 @@ void syscall_dispatch(registers_t *regs) {
             for (int i = 0; i < 16; i++) { if (!g_fds[i]) { slot = i; break; } }
             if (slot < 0) { ret = -3; break; }
             g_fds[slot] = h;
+            g_fd_off[slot] = 0;
             ret = slot + 3;
             break;
         }
@@ -96,7 +100,8 @@ void syscall_dispatch(registers_t *regs) {
             if (!cap_ok(CAP_FS)) { ret = -1; break; }
             if (fd < 3 || fd >= 19 || !g_fds[fd - 3]) { ret = -1; break; }
             if (!user_range(buf, len)) { ret = -2; break; }
-            ret = (int64_t)afs_read_handle(g_fds[fd - 3], buf, len);
+            ret = (int64_t)afs_read_at(g_fds[fd - 3], buf, len, g_fd_off[fd - 3]);
+            if (ret > 0) g_fd_off[fd - 3] += (uint32_t)ret;
             break;
         }
         case SYS_CLOSE: {
@@ -104,6 +109,7 @@ void syscall_dispatch(registers_t *regs) {
             if (!cap_ok(CAP_FS)) { ret = -1; break; }
             if (fd < 3 || fd >= 19) { ret = -1; break; }
             g_fds[fd - 3] = 0;
+            g_fd_off[fd - 3] = 0;
             ret = 0;
             break;
         }

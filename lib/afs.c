@@ -479,14 +479,35 @@ int afs_write_handle(void *h, const void *data, uint32_t size) {
     return 0;
 }
 
-uint32_t afs_read_handle(void *h, void *buf, uint32_t size) {
+/* Ofsetli okuma. Eskiden yalniz bastan okunabiliyordu; SYS_READ'i dongu
+ * icinde cagiran ring3 uygulamasi EOF hic goremiyordu. Ayrica toplu
+ * okuma, cagiranin tamponundan sektore yuvarlanmis boyuta kadar
+ * yazabiliyordu (ornegin 1000 baytlik tampona 1024 bayt); burada kopya
+ * her seferinde yalniz istenen araliga yapilir. */
+uint32_t afs_read_at(void *h, void *buf, uint32_t size, uint32_t off) {
     int i = (int)(intptr_t)h - 1;
     if (i < 0 || i >= (int)H.max_files || !H.files[i].used) return 0;
     if (!perm_ok(H.files[i].uid, H.files[i].gid, H.files[i].mode, AFS_R)) return 0;
-    uint32_t n = size < H.files[i].size ? size : H.files[i].size;
-    uint32_t secs = (n + 511) / 512;
-    if (secs && storage_read(H.files[i].lba, secs, buf) != 0) return 0;
-    return n;
+    if (off >= H.files[i].size) return 0;          /* dosya sonu */
+    uint32_t n = H.files[i].size - off;
+    if (size < n) n = size;
+
+    static uint8_t s_sec[512];
+    uint8_t *p = (uint8_t *)buf;
+    uint32_t pos = off, done = 0;
+    while (done < n) {
+        uint32_t inoff = pos % 512u;
+        uint32_t chunk = 512u - inoff;
+        if (chunk > n - done) chunk = n - done;
+        if (storage_read(H.files[i].lba + pos / 512u, 1, s_sec) != 0) break;
+        for (uint32_t k = 0; k < chunk; k++) p[done + k] = s_sec[inoff + k];
+        done += chunk; pos += chunk;
+    }
+    return done;
+}
+
+uint32_t afs_read_handle(void *h, void *buf, uint32_t size) {
+    return afs_read_at(h, buf, size, 0);
 }
 
 int afs_remove(const char *name) {
