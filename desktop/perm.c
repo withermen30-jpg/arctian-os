@@ -266,6 +266,11 @@ void perm_dec_save(void) {
     if (g_asi->fs->mkdir) g_asi->fs->mkdir("C:/etc");
     void *h = g_asi->fs->create_in("C:/etc", "izinler.cfg", 0);
     if (!h) { s_saving = prev_saving; return; }
+    /* tum kayitlar tek tampona toplanip TEK write ile yazilir: AFS'de
+     * append yoktur, her write dosyanin tamamini degistirdigi icin
+     * eski dongu izinler.cfg'de yalniz son satiri birakiryordu. */
+    static char out[6144];
+    uint32_t on = 0, ocap = sizeof(out) - 1;
     char line[DEC_ID + DEC_SRC + 24];
     for (int i = 0; i < s_dec_n; i++) {
         if (s_dec[i].verd != PERM_ALWAYS && s_dec[i].verd != PERM_DENY) continue;
@@ -283,8 +288,10 @@ void perm_dec_save(void) {
         while (*p && n < (int)sizeof(line) - 2) line[n++] = *p++;
         line[n++] = '\n';
         line[n] = 0;
-        g_asi->fs->write(h, line, (uint32_t)n);
+        if ((uint32_t)n > ocap - on) break;   /* tasacaksa kalan kayit düser */
+        for (int k = 0; k < n; k++) out[on++] = line[k];
     }
+    g_asi->fs->write(h, out, on);
     s_saving = prev_saving;
 }
 
