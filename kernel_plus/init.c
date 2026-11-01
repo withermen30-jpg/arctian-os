@@ -421,7 +421,8 @@ static int in_scroll(void) {
     m->scroll = 0;
     return s;
 }
-static int in_key_avail(void) { return 0; }static int in_hotkey_pop(void) { return keyboard_pop_hotkey(); }
+static int in_key_avail(void) { return keyboard_event_avail() ? 1 : 0; }
+static int in_hotkey_pop(void) { return keyboard_pop_hotkey(); }
 static void in_kbd_layout(int id) { keyboard_set_layout(id); }
 static int in_ctrl_down(void) { return keyboard_ctrl_down(); }
 static int in_shift_down(void) { return keyboard_shift_down(); }

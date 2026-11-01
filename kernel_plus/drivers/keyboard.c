@@ -125,6 +125,12 @@ bool keyboard_pop_event(keyboard_event_t *ev) {
     return true;
 }
 
+/* Kuyrukta bekleyen olay var mi? Eskiden bunu sabit 1 donduren bir stub
+ * uyuyordu; olay olmayan yerde okuyan tarafta bos olay sayardi. */
+bool keyboard_event_avail(void) {
+    return keyboard_event_tail != keyboard_event_head;
+}
+
 // TR-Q klavye layout
 /* Turkce-Q (Türkçe Q) duzeni - kbd "trq.map" temel alindi.
  * ONEMLI: Türkçeye ozgu harfler (ı ğ ü ş ö ç) simdilik ASCII karsiliklariyla

@@ -21,6 +21,9 @@ typedef struct {
 /** Pop the next event from the keyboard event queue. Returns false if empty. */
 bool keyboard_pop_event(keyboard_event_t *ev);
 
+/** Is there a queued event waiting to be popped? */
+bool keyboard_event_avail(void);
+
 /** Process queued USB HID scancodes (call from poll loops). */
 void keyboard_process_usb_queue(void);
 
