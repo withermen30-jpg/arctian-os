@@ -87,7 +87,8 @@ int caps_last_error(void) {
 /* Yardimcilar                                                         */
 /* ------------------------------------------------------------------ */
 
-static int s_policy_busy;
+static int s_policy_busy;   /* onay dialogu acik; uygulama istekleri sorulmadan gecmez */
+static int s_saving;        /* izin kaydi yazilirken kendi FS yazmamiz sorulmaz */
 
 static int p_len(const char *s) { int n = 0; if (s) while (s[n]) n++; return n; }
 
@@ -258,13 +259,13 @@ int perm_dec_set(const char *id, int type, const char *src, int verd) {
 
 /* Kayit bicimi: dpk:kronometre path C:/belgeler allow            */
 void perm_dec_save(void) {
-    int prev_busy;
+    int prev_saving;
     if (!g_asi || !g_asi->fs || !g_asi->fs->create_in || !g_asi->fs->write) return;
-    prev_busy = s_policy_busy;
-    s_policy_busy = 1;
+    prev_saving = s_saving;
+    s_saving = 1;
     if (g_asi->fs->mkdir) g_asi->fs->mkdir("C:/etc");
     void *h = g_asi->fs->create_in("C:/etc", "izinler.cfg", 0);
-    if (!h) { s_policy_busy = prev_busy; return; }
+    if (!h) { s_saving = prev_saving; return; }
     char line[DEC_ID + DEC_SRC + 24];
     for (int i = 0; i < s_dec_n; i++) {
         if (s_dec[i].verd != PERM_ALWAYS && s_dec[i].verd != PERM_DENY) continue;
@@ -284,7 +285,7 @@ void perm_dec_save(void) {
         line[n] = 0;
         g_asi->fs->write(h, line, (uint32_t)n);
     }
-    s_policy_busy = prev_busy;
+    s_saving = prev_saving;
 }
 
 void perm_dec_load(void) {
@@ -545,6 +546,10 @@ static int perm_policy_inner(const char *path, int is_write) {
     if (caps_subject_trusted()) return 0;                 /* guvenilen arac */
     if (!caps_dispatch_active()) return 0;                /* masaustu kodu */
 
+    /* Onay dialogu pompalanirken gelen uygulama istekleri eskiden sessizce
+     * "ver"e donuyordu; artik kullaniciya sorulmadan gecemezler. */
+    if (s_policy_busy) return -1;
+
     if (!path) return -1;
     char n[192];
     if (!perm_norm(n, sizeof(n), path)) return -1;        /* ".." -> inkar */
@@ -580,10 +585,11 @@ static int perm_policy_inner(const char *path, int is_write) {
 }
 
 int perm_policy(const char *path, int is_write) {
-    if (s_policy_busy) return 0;
+    if (s_saving) return 0;        /* izin registeryi yazilirken kendi yazmasi */
+    int prev = s_policy_busy;
     s_policy_busy = 1;
     int r = perm_policy_inner(path, is_write);
-    s_policy_busy = 0;
+    s_policy_busy = prev;
     return r;
 }
 
